@@ -116,8 +116,12 @@ modes. Loaded into context when the current task matches the skill description.
 This is the medium-timescale learning channel. When the agent solves a novel
 class of task, it writes a SKILL.md so the next instance is cheaper.
 
-**v1:** flat directory of `.md` files; LLM-as-retriever picks relevant ones.
-**Later:** structured retrieval, automatic skill compilation from successful
+**v1 (shipped):** flat directory of `.md` files at `~/.agi/skills/`, keyword
+retrieval over the (name + description + tags) frontmatter, top-k matches
+appended to the system prompt for each turn. Implemented in
+`learner.skills.SkillLibrary`. Selected skill names surface on the agent
+(`Agent.last_skills_used`) and in the trace metadata (`skills_used`).
+**Later:** semantic retrieval, automatic skill compilation from successful
 traces, deprecation of stale skills.
 
 ### 4. Reasoning core
@@ -193,6 +197,29 @@ rollback story.
 11. (Async, periodic) adapter training reads filtered traces, trains, validates,
     swaps adapter on success.
 
+## Runtime layer — driving the agent from outside
+
+The harness exposes itself to external drivers (a coordination engine, an
+orchestrator, another agent) via two layers, both shipped:
+
+- **`agi.Runtime`** — in-process API. Stateful sessions keyed by id, each
+  with its own Agent + Memory; per-turn `TurnResult` with text, usage, cost,
+  critic score, and skills used; capability discovery via `describe()`.
+- **`agi.server`** — stdlib HTTP/JSON wrapping the runtime. Endpoints for
+  session lifecycle, turn dispatch, and discovery. Optional bearer-token
+  auth. Stdlib-only so the deploy story is "anywhere Python runs."
+
+Why this matters: a coordination engine routes work between many runtimes
+(different models, different specializations, different versions). It needs
+(a) stable session handles, (b) structured per-turn telemetry to make
+scheduling decisions, and (c) capability discovery so it can plan placement.
+The `TurnResult` shape is the contract that lets a coordinator treat the
+agent as a typed runtime rather than an opaque chat box.
+
+This layer doesn't try to be a full orchestrator. Queueing, retries,
+multi-tenant isolation, and rate-limit budgeting belong to the driver. The
+runtime exposes only what a single-agent caller can't reasonably synthesize.
+
 ## Pluggable choices
 
 The architecture commits to *shape*, not *specifics*. These swap independently:
@@ -264,10 +291,12 @@ real traces.
 
 ### Stage 3 — Skill library
 
-- [ ] `learner/skills.py` — directory of markdown skills, retrieve by description
+- [x] `learner/skills.py` — directory of markdown skills, retrieve by description
+- [x] Integrate into Agent: load top-K relevant skills into system prompt
 - [ ] Skill compilation: an LLM pass that proposes new skills from recent
       successful traces, with human review before commit
-- [ ] Integrate into Agent: load top-K relevant skills into system prompt
+- [ ] Skill telemetry: which skills get used, which get ignored, which precede
+      successful turns — close the loop on what's actually working
 
 ### Stage 4 — Semantic memory
 

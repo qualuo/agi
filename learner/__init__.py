@@ -1,6 +1,7 @@
 from learner.critic import Critic, CriticConfig
 from learner.filter import filter_traces, eval_passing, min_quality
 from learner.goals import Addition, Example, Goal
+from learner.skills import Skill, SkillLibrary
 from learner.traces import Trace, TraceLogger
 
 __all__ = [
@@ -14,4 +15,6 @@ __all__ = [
     "Addition",
     "Critic",
     "CriticConfig",
+    "Skill",
+    "SkillLibrary",
 ]

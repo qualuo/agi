@@ -24,6 +24,11 @@ try:
 except ImportError:  # learner package optional
     TraceLogger = None  # type: ignore
 
+try:
+    from learner.skills import SkillLibrary
+except ImportError:  # learner package optional
+    SkillLibrary = None  # type: ignore
+
 
 SYSTEM_PROMPT = """\
 You are an agent built on Claude Opus 4.7. You have tools to read and write files,
@@ -61,6 +66,9 @@ class Agent:
         tracer=None,
         critic=None,
         critic_threshold: float = 0.5,
+        skills=None,
+        skills_top_k: int = 3,
+        enable_delegate: bool = False,
     ) -> None:
         self.client = anthropic.Anthropic()
         self.memory = memory or Memory()
@@ -72,6 +80,11 @@ class Agent:
         self.critic = critic  # optional learner.Critic; gates final output
         self.critic_threshold = critic_threshold
         self.last_critic_score: float | None = None
+        # skills is an optional learner.SkillLibrary; when set, the top-k
+        # matching skills are appended to the system prompt at each chat() call.
+        self.skills = skills
+        self.skills_top_k = skills_top_k
+        self.last_skills_used: list[str] = []
         self.messages: list[dict] = []
         self.usage = Usage()
 
@@ -88,6 +101,9 @@ class Agent:
                 {"type": "web_fetch_20260209", "name": "web_fetch"}
             )
 
+        if enable_delegate:
+            self._install_delegate_tool()
+
     def reset(self) -> None:
         self.messages = []
         self.usage = Usage()
@@ -97,8 +113,11 @@ class Agent:
         last_text = ""
         turn_usage = Usage()
 
+        skills_block, skills_used = self._select_skills(user_input)
+        self.last_skills_used = skills_used
+
         for _ in range(max_iterations):
-            response = self._stream_one()
+            response = self._stream_one(skills_block=skills_block)
 
             self.messages.append({"role": "assistant", "content": response.content})
             self.usage.add(response.usage)
@@ -135,6 +154,8 @@ class Agent:
             metadata: dict = {}
             if critic_score is not None:
                 metadata["critic_score"] = critic_score
+            if skills_used:
+                metadata["skills_used"] = skills_used
             self.tracer.log(
                 model=self.model,
                 messages=self.messages,
@@ -169,17 +190,43 @@ class Agent:
             return response + warning, score
         return response, score
 
-    def _stream_one(self):
+    def _select_skills(self, user_input: str) -> tuple[str, list[str]]:
+        """Pick skills relevant to this turn and render them for the prompt.
+
+        Returns (block, names). The block is "" when no skills match or no
+        library is configured, in which case the system prompt is unchanged.
+        """
+        if self.skills is None:
+            return "", []
+        try:
+            hits = self.skills.search(user_input, k=self.skills_top_k)
+        except Exception:
+            return "", []
+        if not hits:
+            return "", []
+        block = "## Relevant skills from your library\n\n" + "\n\n".join(
+            s.render() for s in hits
+        )
+        return block, [s.name for s in hits]
+
+    def _stream_one(self, skills_block: str = ""):
+        # The base prompt is cached separately so adding ephemeral skill blocks
+        # doesn't invalidate the prompt cache. Each system block is its own
+        # cache key; only blocks that actually change get rebuilt.
+        system_blocks: list[dict] = [
+            {
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+        if skills_block:
+            system_blocks.append({"type": "text", "text": skills_block})
+
         with self.client.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
+            system=system_blocks,
             tools=self.tool_schemas,
             thinking={"type": "adaptive", "display": "summarized"},
             output_config={"effort": self.effort},
@@ -211,6 +258,78 @@ class Agent:
             elif d.type == "text_delta":
                 print(d.text, end="", flush=True)
             # input_json_delta is too noisy to show during streaming
+
+    def _install_delegate_tool(self) -> None:
+        """Add a `delegate` tool that spawns a sub-Agent for a focused task.
+
+        Subagent token usage rolls up into the parent's `usage` so cost
+        accounting remains correct. Sub-agents do not inherit the parent's
+        memory unless explicitly handed one — the default is isolated to
+        prevent the sub-task from polluting long-term memory.
+        """
+        parent = self
+
+        def delegate(task: str, role: str = "executor", max_iterations: int = 8) -> str:
+            sub = Agent(
+                memory=Memory(path=parent.memory.path),  # share read view
+                model=parent.model,
+                max_tokens=parent.max_tokens,
+                effort=parent.effort,
+                enable_web_search=False,  # disable in subagents by default
+                enable_web_fetch=False,
+                verbose=False,
+                # No tracer/critic/skills inheritance in v1: subagent traces
+                # are inlined into the parent's final trace via tool results.
+                enable_delegate=False,  # one level of delegation only
+            )
+            framed = (
+                f"You are a sub-agent with role: {role}. "
+                f"Complete the focused task below and return only the final answer.\n\n"
+                f"Task:\n{task}"
+            )
+            try:
+                result = sub.chat(framed, max_iterations=max_iterations)
+            except Exception as e:
+                return f"error: subagent failed: {type(e).__name__}: {e}"
+            # Roll usage up to the parent so cost accounting stays accurate.
+            parent.usage.input_tokens += sub.usage.input_tokens
+            parent.usage.output_tokens += sub.usage.output_tokens
+            parent.usage.cache_creation_input_tokens += sub.usage.cache_creation_input_tokens
+            parent.usage.cache_read_input_tokens += sub.usage.cache_read_input_tokens
+            return result
+
+        self.tool_schemas.append(
+            {
+                "name": "delegate",
+                "description": (
+                    "Spawn a focused sub-agent to handle a self-contained subtask "
+                    "and return its final answer. Use for parallel decomposition or "
+                    "when a sub-task benefits from a clean context. The sub-agent "
+                    "has filesystem and shell tools but no web/delegate."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "task": {
+                            "type": "string",
+                            "description": "The full task description for the sub-agent.",
+                        },
+                        "role": {
+                            "type": "string",
+                            "description": "Role hint, e.g. 'planner', 'executor', 'critic'.",
+                            "default": "executor",
+                        },
+                        "max_iterations": {
+                            "type": "integer",
+                            "description": "Max tool-loop iterations the sub-agent may run.",
+                            "default": 8,
+                        },
+                    },
+                    "required": ["task"],
+                },
+            }
+        )
+        self.handlers["delegate"] = delegate
 
     def _dispatch_tool_calls(self, content) -> list[dict]:
         tool_results: list[dict] = []

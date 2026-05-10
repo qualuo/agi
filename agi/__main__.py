@@ -1,6 +1,6 @@
-"""CLI entry: `python -m agi [prompt]`.
+"""CLI entry: `python -m agi [prompt | serve ...]`.
 
-No prompt → REPL. With a prompt → one-shot.
+No args → REPL. With a prompt → one-shot. `serve` starts the HTTP runtime.
 """
 from __future__ import annotations
 
@@ -17,6 +17,11 @@ def _check_api_key() -> None:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "serve":
+        # `serve` doesn't need ANTHROPIC_API_KEY at startup — only at first turn.
+        from agi.server import main as serve_main
+        return serve_main(sys.argv[2:])
+
     _check_api_key()
     agent = Agent()
 
