@@ -17,6 +17,7 @@ import anthropic
 
 from agi.costs import Usage
 from agi.memory import Memory
+from agi.skills import SkillLibrary
 from agi.tools import make_tools
 
 try:
@@ -28,12 +29,17 @@ except ImportError:  # learner package optional
 SYSTEM_PROMPT = """\
 You are an agent built on Claude Opus 4.7. You have tools to read and write files,
 run shell commands, search and fetch the web, and manage a persistent long-term
-memory that survives across sessions.
+memory that survives across sessions. You may also have access to a skill
+library — named, reusable procedures the agent has accumulated from prior
+successful tasks.
 
 Operating principles:
 - Plan before acting on multi-step tasks. Decompose, then execute.
 - Use tools instead of guessing. If you need a file's contents, read it. If you
   need a fact, search the web. If you remember something useful, save it.
+- If skill tools are available, call find_skills near the start of a non-trivial
+  task. If a relevant skill exists, follow it. After successfully completing a
+  novel non-trivial task, call save_skill so the next instance is cheaper.
 - Use long-term memory deliberately. Save user preferences, project facts, and
   durable lessons learned. Search memory at the start of related tasks.
 - Verify before claiming success. Read back files you wrote. Run tests where
@@ -52,6 +58,7 @@ class Agent:
     def __init__(
         self,
         memory: Memory | None = None,
+        skills: SkillLibrary | None = None,
         model: str = "claude-opus-4-7",
         max_tokens: int = 16000,
         effort: str = "high",
@@ -61,9 +68,11 @@ class Agent:
         tracer=None,
         critic=None,
         critic_threshold: float = 0.5,
+        on_event: Callable[[dict], None] | None = None,
     ) -> None:
         self.client = anthropic.Anthropic()
         self.memory = memory or Memory()
+        self.skills = skills
         self.model = model
         self.max_tokens = max_tokens
         self.effort = effort
@@ -72,10 +81,11 @@ class Agent:
         self.critic = critic  # optional learner.Critic; gates final output
         self.critic_threshold = critic_threshold
         self.last_critic_score: float | None = None
+        self.on_event = on_event  # optional structured-event callback for runtimes
         self.messages: list[dict] = []
         self.usage = Usage()
 
-        schemas, handlers = make_tools(self.memory)
+        schemas, handlers = make_tools(self.memory, skills=self.skills)
         self.tool_schemas: list[dict] = list(schemas)
         self.handlers: dict[str, Callable[..., str]] = handlers
 
@@ -169,6 +179,14 @@ class Agent:
             return response + warning, score
         return response, score
 
+    def _emit(self, event: dict) -> None:
+        if self.on_event is not None:
+            try:
+                self.on_event(event)
+            except Exception:
+                # Event callbacks must not break the agent loop.
+                pass
+
     def _stream_one(self):
         with self.client.messages.stream(
             model=self.model,
@@ -185,31 +203,39 @@ class Agent:
             output_config={"effort": self.effort},
             messages=self.messages,
         ) as stream:
-            if self.verbose:
-                for event in stream:
-                    self._handle_stream_event(event)
-            else:
-                for _ in stream:
-                    pass
+            for event in stream:
+                self._handle_stream_event(event)
             return stream.get_final_message()
 
     def _handle_stream_event(self, event) -> None:
         if event.type == "content_block_start":
             block = event.content_block
             if block.type == "thinking":
-                print("\n[thinking] ", end="", flush=True)
+                if self.verbose:
+                    print("\n[thinking] ", end="", flush=True)
+                self._emit({"kind": "thinking_start"})
             elif block.type == "tool_use":
-                print(f"\n[tool: {block.name}]", end="", flush=True)
+                if self.verbose:
+                    print(f"\n[tool: {block.name}]", end="", flush=True)
+                self._emit({"kind": "tool_use_start", "name": block.name})
             elif block.type == "server_tool_use":
-                print(f"\n[server: {block.name}]", end="", flush=True)
+                if self.verbose:
+                    print(f"\n[server: {block.name}]", end="", flush=True)
+                self._emit({"kind": "server_tool_use_start", "name": block.name})
             elif block.type == "text":
-                print()
+                if self.verbose:
+                    print()
+                self._emit({"kind": "text_start"})
         elif event.type == "content_block_delta":
             d = event.delta
             if d.type == "thinking_delta":
-                print(d.thinking, end="", flush=True)
+                if self.verbose:
+                    print(d.thinking, end="", flush=True)
+                self._emit({"kind": "thinking_delta", "text": d.thinking})
             elif d.type == "text_delta":
-                print(d.text, end="", flush=True)
+                if self.verbose:
+                    print(d.text, end="", flush=True)
+                self._emit({"kind": "text_delta", "text": d.text})
             # input_json_delta is too noisy to show during streaming
 
     def _dispatch_tool_calls(self, content) -> list[dict]:
@@ -222,17 +248,29 @@ class Agent:
                 # web_search / web_fetch and other server-side tools land here;
                 # skip — the API already handled them and inlined the results.
                 continue
+            self._emit(
+                {"kind": "tool_call", "name": block.name, "input": block.input or {}}
+            )
             try:
                 result = handler(**(block.input or {}))
                 is_error = False
             except Exception as e:  # tool failures are reported back to the model
                 result = f"error: {type(e).__name__}: {e}"
                 is_error = True
+            result_text = _stringify_tool_result(result)
+            self._emit(
+                {
+                    "kind": "tool_result",
+                    "name": block.name,
+                    "output": result_text,
+                    "is_error": is_error,
+                }
+            )
             tool_results.append(
                 {
                     "type": "tool_result",
                     "tool_use_id": block.id,
-                    "content": _stringify_tool_result(result),
+                    "content": result_text,
                     "is_error": is_error,
                 }
             )

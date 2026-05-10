@@ -1,6 +1,12 @@
-"""CLI entry: `python -m agi [prompt]`.
+"""CLI entry.
 
-No prompt → REPL. With a prompt → one-shot.
+Three modes:
+
+    python -m agi                  # interactive REPL
+    python -m agi "<prompt>"       # one-shot prompt
+    python -m agi --runtime        # JSON-line stdio runtime (for coordinators)
+
+See agi.runtime for the runtime protocol.
 """
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ import os
 import sys
 
 from agi.agent import Agent
+from agi.skills import SkillLibrary
 
 
 def _check_api_key() -> None:
@@ -17,11 +24,20 @@ def _check_api_key() -> None:
 
 
 def main() -> int:
-    _check_api_key()
-    agent = Agent()
+    args = sys.argv[1:]
 
-    if len(sys.argv) > 1:
-        prompt = " ".join(sys.argv[1:])
+    if args and args[0] == "--runtime":
+        # Don't require an API key just to start the runtime — it may be
+        # used for memory/skills-only operations. Chat will fail clearly
+        # if the key is missing.
+        from agi.runtime import Runtime
+        return Runtime().serve()
+
+    _check_api_key()
+    agent = Agent(skills=SkillLibrary())
+
+    if args:
+        prompt = " ".join(args)
         agent.chat(prompt)
         print()
         return 0

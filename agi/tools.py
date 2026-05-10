@@ -1,9 +1,12 @@
 """Tools the agent can call.
 
-`make_tools(memory)` returns a `(schemas, handlers)` pair: the JSON schemas
-go in the API request, the handlers are dispatched on `tool_use` blocks.
-File and shell tools touch the host directly — run this in a sandbox if you
-don't trust the model's choices.
+`make_tools(memory, skills=...)` returns a `(schemas, handlers)` pair: the
+JSON schemas go in the API request, the handlers are dispatched on
+`tool_use` blocks. File and shell tools touch the host directly — run this
+in a sandbox if you don't trust the model's choices.
+
+`skills` is optional. When provided, skill-library tools (find_skills,
+read_skill, save_skill) are added to the surface.
 """
 from __future__ import annotations
 
@@ -12,9 +15,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agi.memory import Memory
+from agi.skills import SkillLibrary
 
 
-def make_tools(memory: Memory) -> tuple[list[dict[str, Any]], dict[str, Callable[..., str]]]:
+def make_tools(
+    memory: Memory,
+    skills: SkillLibrary | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Callable[..., str]]]:
     def read_file(path: str) -> str:
         p = Path(path).expanduser()
         if not p.exists():
@@ -181,5 +188,102 @@ def make_tools(memory: Memory) -> tuple[list[dict[str, Any]], dict[str, Callable
         "search_memory": search_memory,
         "recent_memory": recent_memory,
     }
+
+    if skills is not None:
+        def find_skills(query: str, k: int = 5) -> str:
+            results = skills.search(query, k)
+            if not results:
+                return "no matching skills"
+            return "\n".join(f"- {s.summary()}" for s in results)
+
+        def read_skill(name: str) -> str:
+            s = skills.get(name)
+            if s is None:
+                return f"error: no skill named {name!r}"
+            return s.render()
+
+        def save_skill(
+            name: str,
+            when: str,
+            body: str,
+            tags: list[str] | None = None,
+        ) -> str:
+            try:
+                s = skills.save(name=name, when=when, body=body, tags=tags)
+            except ValueError as e:
+                return f"error: {e}"
+            return f"saved skill {s.name} -> {s.path}"
+
+        def list_skills() -> str:
+            results = skills.all()
+            if not results:
+                return "(skill library is empty)"
+            return "\n".join(f"- {s.summary()}" for s in results)
+
+        schemas.extend(
+            [
+                {
+                    "name": "find_skills",
+                    "description": (
+                        "Search the skill library for procedures relevant to the "
+                        "current task. Skills are markdown SOPs the agent has "
+                        "accumulated from previous successful tasks. Call this "
+                        "near the start of a non-trivial task."
+                    ),
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Describe the task; this is keyword-matched against skill name/when/tags/body."},
+                            "k": {"type": "integer", "description": "Max results (default 5).", "default": 5},
+                        },
+                        "required": ["query"],
+                    },
+                },
+                {
+                    "name": "read_skill",
+                    "description": "Read the full body of a named skill.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Skill name (lowercase, hyphen-separated)."},
+                        },
+                        "required": ["name"],
+                    },
+                },
+                {
+                    "name": "save_skill",
+                    "description": (
+                        "Save a new skill (or overwrite an existing one) to the "
+                        "library. Use this AFTER successfully completing a non-"
+                        "trivial task, to capture the procedure so the next "
+                        "similar task is cheaper. Body should be a short, "
+                        "numbered procedure plus known failure modes."
+                    ),
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Lowercase, hyphen-separated, e.g. summarize-file."},
+                            "when": {"type": "string", "description": "One-sentence trigger condition."},
+                            "body": {"type": "string", "description": "Markdown procedure: numbered steps + failure modes."},
+                            "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional retrieval tags."},
+                        },
+                        "required": ["name", "when", "body"],
+                    },
+                },
+                {
+                    "name": "list_skills",
+                    "description": "List every skill in the library (name + trigger).",
+                    "input_schema": {"type": "object", "properties": {}},
+                },
+            ]
+        )
+        handlers.update(
+            {
+                "find_skills": find_skills,
+                "read_skill": read_skill,
+                "save_skill": save_skill,
+                "list_skills": list_skills,
+            }
+        )
 
     return schemas, handlers
