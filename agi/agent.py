@@ -59,6 +59,8 @@ class Agent:
         enable_web_fetch: bool = True,
         verbose: bool = True,
         tracer=None,
+        critic=None,
+        critic_threshold: float = 0.5,
     ) -> None:
         self.client = anthropic.Anthropic()
         self.memory = memory or Memory()
@@ -67,6 +69,9 @@ class Agent:
         self.effort = effort
         self.verbose = verbose
         self.tracer = tracer  # optional TraceLogger for the learning loop
+        self.critic = critic  # optional learner.Critic; gates final output
+        self.critic_threshold = critic_threshold
+        self.last_critic_score: float | None = None
         self.messages: list[dict] = []
         self.usage = Usage()
 
@@ -120,10 +125,16 @@ class Agent:
             # refusal, max_tokens, stop_sequence, model_context_window_exceeded, ...
             break
 
+        last_text, critic_score = self._apply_critic_gate(user_input, last_text)
+        self.last_critic_score = critic_score
+
         if self.verbose:
             print(f"\n[{turn_usage.format(self.model)}]", flush=True)
 
         if self.tracer is not None:
+            metadata: dict = {}
+            if critic_score is not None:
+                metadata["critic_score"] = critic_score
             self.tracer.log(
                 model=self.model,
                 messages=self.messages,
@@ -134,9 +145,29 @@ class Agent:
                     "cache_creation_input_tokens": turn_usage.cache_creation_input_tokens,
                     "cache_read_input_tokens": turn_usage.cache_read_input_tokens,
                 },
+                metadata=metadata,
             )
 
         return last_text
+
+    def _apply_critic_gate(self, prompt: str, response: str) -> tuple[str, float | None]:
+        """Score the response with the critic; annotate if below threshold.
+
+        Returns (possibly-annotated response, score). If no critic is set,
+        returns (response, None) — opt-in feature, default off.
+
+        v1: annotate only. Future options: regenerate with hint, refuse,
+        surface a structured uncertainty signal to the caller.
+        """
+        if self.critic is None:
+            return response, None
+        score = self.critic.predict_proba(prompt, response)
+        if score < self.critic_threshold:
+            warning = f"\n\n[critic confidence: {score:.2f} (< {self.critic_threshold}) — response may be unreliable]"
+            if self.verbose:
+                print(warning, flush=True)
+            return response + warning, score
+        return response, score
 
     def _stream_one(self):
         with self.client.messages.stream(
