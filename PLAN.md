@@ -43,12 +43,17 @@ moving capability — not whether our harness is clever.
 
 ## Stage 0 — Where we are (now)
 
-- 18 unit tests passing
+- **98 unit tests passing**, no API calls required to run them
 - 6-task eval suite (math, file ops, shell, recall, multi-step planning)
 - Streaming, adaptive thinking with summarized display, cost tracking
 - Persistent JSONL memory with keyword search
-- Tools: file/shell/memory + server-side web_search and web_fetch
-- ~750 LoC across 5 modules
+- Tools: file/shell/memory/skills + server-side web_search and web_fetch
+- **Runtime contract shipped** (`agi.runtime`, `agi.server`, `agi.events`):
+  embeddable Session/Budget API, HTTP+SSE wire shape, snapshot/restore
+- **Coordination tools shipped** (`agi.coordination`): `delegate` (subagents
+  with rollup accounting) and `reflect` (per-task lesson)
+- **Skill library shipped** (`learner.skills`): markdown SOPs the agent can
+  read, write, and search; threaded into the system prompt at session start
 
 ## Stage 1 — Tighten the loop
 
@@ -77,13 +82,14 @@ detect regressions same-day.
       registers as a callable tool for the rest of the session. Optionally
       promotes to persistent on user approval. Eval: novel-task pass rate
       before/after `make_tool` is enabled.
-- [ ] **Skill library.** Successful task decompositions get distilled into
-      named skills (markdown `SKILL.md`-style). Loaded on relevant prompts via
-      memory search. Eval: same task family should be cheaper second time. We
-      should see $/passed-task fall on repeat workloads.
-- [ ] **Reflection journal.** After each task, write a one-paragraph "what
-      worked / what didn't" to memory with a `lesson` tag. Search the journal
-      at the start of related tasks. Eval: error-recovery rate over time.
+- [x] **Skill library.** Successful task decompositions get distilled into
+      named skills (`save_skill` tool writes markdown to `~/.agi/skills/`).
+      Threaded into the system prompt at session creation. Eval pending: same
+      task family should be cheaper second time.
+- [x] **Reflection journal.** `reflect` tool writes a structured one-paragraph
+      "what worked / what didn't / lesson" to memory tagged `lesson`; the
+      `search_memory` tool retrieves them. Eval pending: error-recovery rate
+      over time.
 
 **Exit criterion:** on a held-out repeat workload, $/passed-task drops by ≥30%
 between first and second exposure.
@@ -107,11 +113,13 @@ between first and second exposure.
 
 **Goal:** parallel work and specialization, where it pays off.
 
-- [ ] Subagent spawning. A `delegate(task, role)` tool spawns a sub-Agent,
+- [x] Subagent spawning. A `delegate(role, task)` tool spawns a sub-Agent,
       runs it to completion, and returns its final answer.
-- [ ] Specialized roles: `planner`, `executor`, `critic`. Different system
-      prompts, possibly different models (Haiku for cheap subtasks).
-- [ ] Honest accounting: subagent token usage rolls up to the parent.
+- [x] Specialized roles: `planner`, `executor`, `critic`, `researcher`,
+      `summarizer`. Different system prompts; per-call model override.
+- [x] Honest accounting: subagent token usage rolls up to the parent.
+- [ ] Eval: are decomposed runs actually beating flat runs on $/passed-task?
+      (Build the comparison harness next.)
 
 **Watch out for:** coordination overhead. If subagents make tasks slower and
 costlier without raising pass rate, kill the feature. This is an *experiment*,

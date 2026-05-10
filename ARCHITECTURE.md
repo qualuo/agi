@@ -228,6 +228,69 @@ Honest list of limitations:
 These are **research problems**, not features we forgot. Naming them keeps the
 plan honest.
 
+## Runtime contract (for a coordination engine)
+
+The agent harness above is wrapped by an **embeddable runtime** so that an
+external coordination engine — a separate process or service whose job is
+to plan across many agent invocations, route work, enforce policy, and
+roll up cost — can drive it cleanly. Two access modes:
+
+### 1. In-process (Python import)
+
+```python
+from agi.runtime import Runtime, Budget
+rt = Runtime(skill_library=...)
+session = rt.create_session(budget=Budget(max_usd=0.5), role="executor")
+session.bus.subscribe(handler)            # observe lifecycle
+result = session.step("the task")
+snap = session.snapshot()                  # opaque, JSON-serializable
+```
+
+### 2. Network (HTTP + Server-Sent Events)
+
+```
+GET  /capabilities                  -> { tools, models, skills, snapshots, streaming }
+POST /sessions                      -> create (with budget, role, agent overrides)
+POST /sessions/{id}/step            -> drive one turn synchronously
+GET  /sessions/{id}/events          -> SSE: turn.started, tool.invoked, text.delta,
+                                          tool.completed, critic.scored, budget.exceeded,
+                                          turn.completed, …
+POST /sessions/{id}/snapshot        -> opaque dict for resume/migration
+POST /sessions/restore              -> restore from a snapshot
+DELETE /sessions/{id}               -> close
+```
+
+Key contract guarantees:
+
+| Property | Mechanism |
+|---|---|
+| Stateful, resumable | `snapshot()` / `restore_session(snap)` round-trip |
+| Hard cost ceilings | `Budget(max_usd, max_turns, max_input_tokens, max_output_tokens)` checked pre-flight and pre-call inside the loop |
+| Honest accounting | Subagent token usage rolls up into the parent's running total |
+| Streaming observability | `EventBus` emits typed lifecycle events with monotonic `seq`; SSE replays via `?since=<seq>` |
+| Capability declaration | `runtime.capabilities()` reports tools, models, skills, server tools |
+| Concurrency | `Session.step()` is mutex-serialized; many sessions run in parallel under one `Runtime` |
+
+This is the surface a coordination engine plans against: a fleet of agent
+runtimes (possibly different models, skills, regions) advertising their
+capabilities; the coordinator routes turns, observes events, snapshots
+sessions across migrations, and aggregates rollup cost across the tree.
+
+## Coordination tools (for the agent itself)
+
+The agent has two tools that turn it into a small coordinator of its own:
+
+- **`delegate(role, task)`** — spawn a role-specialized child agent
+  (`planner`, `executor`, `critic`, `researcher`, `summarizer`). Children
+  share long-term memory with the parent and have a recursion-depth cap.
+  Child token usage rolls up into the parent's running total.
+- **`reflect(task, what_worked, what_failed, lesson)`** — durably record a
+  one-paragraph lesson tagged `lesson` so future related tasks retrieve it.
+
+These are the per-task and per-subtask edges of the loop above; they let
+the agent turn a single user prompt into a small graph of work and a
+durable lesson, all observable to the coordinator via events.
+
 ## Initial implementation roadmap
 
 Building this in stages, smallest viable end-to-end loop first.
@@ -264,10 +327,14 @@ real traces.
 
 ### Stage 3 — Skill library
 
-- [ ] `learner/skills.py` — directory of markdown skills, retrieve by description
-- [ ] Skill compilation: an LLM pass that proposes new skills from recent
-      successful traces, with human review before commit
-- [ ] Integrate into Agent: load top-K relevant skills into system prompt
+- [x] `learner/skills.py` — directory of markdown skills, retrieve by description
+- [x] `save_skill` tool so the agent can compile its own skills mid-session
+- [x] Integrate into Runtime: skill addendum threaded into the system prompt
+      at session creation
+- [ ] Automatic skill compilation: an LLM pass that proposes new skills from
+      recent successful traces, with human review before commit
+- [ ] Top-K relevant skills loaded per turn (today: full table-of-contents
+      addendum)
 
 ### Stage 4 — Semantic memory
 
@@ -279,6 +346,21 @@ real traces.
 
 - [ ] Background job: summarize raw memory into compact notes
 - [ ] Skill deprecation: skills that haven't been used in N tasks get archived
+
+### Stage R — Runtime contract (shipped)
+
+- [x] `agi/runtime.py` — `Runtime`, `Session`, `Budget`, `StepResult`, `SessionInfo`
+- [x] `agi/events.py` — `EventBus` with typed lifecycle events + replay buffer
+- [x] `agi/server.py` — stdlib HTTP + Server-Sent Events wire shape
+- [x] `agi/coordination.py` — `delegate` and `reflect` tools
+- [x] Hard budgets enforced inside the chat loop (mid-turn abort with
+      `[runtime: ... — turn aborted]` annotation)
+- [x] Snapshot / restore round-trip (in-process and over HTTP)
+- [x] 98 unit tests, no API calls
+- [ ] Multi-runtime federation: a single coordinator routing across many
+      runtime instances with different model/skill profiles
+- [ ] Auth + tenancy on the HTTP layer (today: assume private network)
+- [ ] WebSocket bidirectional channel as an alternative to SSE+POST
 
 ### Stage 6+ — Scale
 

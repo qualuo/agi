@@ -16,7 +16,36 @@ def _check_api_key() -> None:
         sys.exit(2)
 
 
+def _maybe_serve(args: list[str]) -> int | None:
+    if not args or args[0] != "serve":
+        return None
+    _check_api_key()
+    from agi.server import serve_forever
+
+    host = "127.0.0.1"
+    port = 8765
+    rest = args[1:]
+    i = 0
+    while i < len(rest):
+        a = rest[i]
+        if a in ("--host", "-h") and i + 1 < len(rest):
+            host = rest[i + 1]
+            i += 2
+            continue
+        if a in ("--port", "-p") and i + 1 < len(rest):
+            port = int(rest[i + 1])
+            i += 2
+            continue
+        i += 1
+    serve_forever(host=host, port=port)
+    return 0
+
+
 def main() -> int:
+    serve_rc = _maybe_serve(sys.argv[1:])
+    if serve_rc is not None:
+        return serve_rc
+
     _check_api_key()
     agent = Agent()
 
