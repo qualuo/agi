@@ -8,17 +8,25 @@ harness to measure capability.
 ## What's in here
 
 ```
-agi/
-  agent.py      # streaming agent loop — adaptive thinking + tool dispatch
-  costs.py      # per-turn + cumulative token usage and $ tracking
-  memory.py     # persistent JSONL memory store with keyword search
-  tools.py      # filesystem, shell, web search/fetch, memory tools
-  __main__.py   # CLI: python -m agi
+agi/                # frozen-Opus harness (capability track)
+  agent.py          # streaming agent loop — adaptive thinking + tool dispatch
+  costs.py          # per-turn + cumulative token usage and $ tracking
+  memory.py         # persistent JSONL memory store with keyword search
+  tools.py          # filesystem, shell, web search/fetch, memory tools
+  __main__.py       # CLI: python -m agi
+learner/            # learning track — small open base + LoRA loop
+  traces.py         # append-only JSONL trace logger
+  filter.py         # quality gates: eval-pass, score threshold, thumbs
+  train.py          # LoRA SFT script (HF transformers + PEFT, GPU)
+  README.md         # how to run training
 evals/
-  tasks.jsonl   # eval tasks (math, file ops, recall, search)
-  run.py        # eval runner — reports pass/fail per task
+  tasks.jsonl       # eval tasks (math, file ops, recall, search)
+  run.py            # eval runner — reports pass/fail per task
 tests/
-  test_smoke.py # smoke tests
+  test_smoke.py     # smoke tests for the agi/ package
+  test_learner.py   # smoke tests for learner/ (GPU-free pieces)
+ARCHITECTURE.md     # full design — read this for direction
+PLAN.md             # stage roadmap (being rewritten against ARCHITECTURE.md)
 ```
 
 ## Setup
@@ -45,7 +53,10 @@ python evals/run.py                   # run the eval suite
 - Stream output as Claude generates it; show summarized thinking
 - Track per-turn and cumulative token usage with $ cost
 
-## What it can't do
+## What it can't do (yet)
 
 Everything that makes AGI AGI: open-ended self-improvement, robust transfer,
-grounded world models, durable goals. This is a useful tool, not a mind.
+grounded world models, durable goals. The Opus harness is a frozen system; it
+doesn't learn. The `learner/` track is the path toward durable improvement
+through weight updates on a small open base — not a frontier model, but
+actually a system that learns. See `ARCHITECTURE.md` for the design.

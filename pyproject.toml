@@ -7,6 +7,18 @@ dependencies = [
     "anthropic>=0.50.0",
 ]
 
+[project.optional-dependencies]
+# `pip install -e ".[learner]"` to install everything needed for LoRA fine-tuning
+# on a small open base. Requires CUDA or MPS at runtime.
+learner = [
+    "torch>=2.2",
+    "transformers>=4.45",
+    "peft>=0.13",
+    "trl>=0.11",
+    "datasets>=3.0",
+    "accelerate>=0.34",
+]
+
 [project.scripts]
 agi = "agi.__main__:main"
 
@@ -16,4 +28,4 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["agi*"]
+include = ["agi*", "learner*"]

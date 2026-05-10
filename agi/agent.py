@@ -19,6 +19,11 @@ from agi.costs import Usage
 from agi.memory import Memory
 from agi.tools import make_tools
 
+try:
+    from learner.traces import TraceLogger
+except ImportError:  # learner package optional
+    TraceLogger = None  # type: ignore
+
 
 SYSTEM_PROMPT = """\
 You are an agent built on Claude Opus 4.7. You have tools to read and write files,
@@ -53,6 +58,7 @@ class Agent:
         enable_web_search: bool = True,
         enable_web_fetch: bool = True,
         verbose: bool = True,
+        tracer=None,
     ) -> None:
         self.client = anthropic.Anthropic()
         self.memory = memory or Memory()
@@ -60,6 +66,7 @@ class Agent:
         self.max_tokens = max_tokens
         self.effort = effort
         self.verbose = verbose
+        self.tracer = tracer  # optional TraceLogger for the learning loop
         self.messages: list[dict] = []
         self.usage = Usage()
 
@@ -115,6 +122,19 @@ class Agent:
 
         if self.verbose:
             print(f"\n[{turn_usage.format(self.model)}]", flush=True)
+
+        if self.tracer is not None:
+            self.tracer.log(
+                model=self.model,
+                messages=self.messages,
+                final_text=last_text,
+                usage={
+                    "input_tokens": turn_usage.input_tokens,
+                    "output_tokens": turn_usage.output_tokens,
+                    "cache_creation_input_tokens": turn_usage.cache_creation_input_tokens,
+                    "cache_read_input_tokens": turn_usage.cache_read_input_tokens,
+                },
+            )
 
         return last_text
 

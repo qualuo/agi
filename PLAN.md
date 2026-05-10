@@ -1,5 +1,20 @@
 # Plan
 
+> **The plan changed.** This document was originally a roadmap for the
+> Opus-only scaffold. After settling on a working definition of AGI
+> (generality × autonomy × durable improvement) and admitting that durable
+> improvement requires **weight learning** that scaffolding can't fake, the
+> direction shifted to the dual-track architecture in
+> [`ARCHITECTURE.md`](ARCHITECTURE.md): a strong frozen-Opus harness for
+> capability and a small open base + LoRA loop for actual learning, run
+> head-to-head on the same eval suite.
+>
+> Read `ARCHITECTURE.md` first. The stage list below is being rewritten
+> against it; what's there now is the older, scaffolding-only plan, kept
+> for context until the rewrite.
+
+---
+
 This is an engineering plan for an agent harness on top of a frozen frontier
 model. It is **not** a research plan for AGI — those problems aren't solved by
 scaffolding, and pretending otherwise would be theater.
