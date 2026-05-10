@@ -1,0 +1,31 @@
+[project]
+name = "agi"
+version = "0.1.0"
+description = "An agent harness built on Claude Opus 4.7."
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.50.0",
+]
+
+[project.optional-dependencies]
+# `pip install -e ".[learner]"` to install everything needed for LoRA fine-tuning
+# on a small open base. Requires CUDA or MPS at runtime.
+learner = [
+    "torch>=2.2",
+    "transformers>=4.45",
+    "peft>=0.13",
+    "trl>=0.11",
+    "datasets>=3.0",
+    "accelerate>=0.34",
+]
+
+[project.scripts]
+agi = "agi.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agi*", "learner*"]

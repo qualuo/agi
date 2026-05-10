@@ -1,0 +1,6 @@
+{"id": "math-1", "prompt": "What is 2 + 2? Answer with just the number.", "check": {"type": "contains", "value": "4"}}
+{"id": "math-2", "prompt": "Compute 17 * 23. Answer with just the number.", "check": {"type": "contains", "value": "391"}}
+{"id": "file-1", "prompt": "Create a file at /tmp/agi_eval_file_1.txt with exactly the text 'hello world'. Then read it back and confirm.", "check": {"type": "file_contents", "path": "/tmp/agi_eval_file_1.txt", "value": "hello world"}}
+{"id": "shell-1", "prompt": "Use the shell to compute 2^10 and report the result.", "check": {"type": "contains", "value": "1024"}}
+{"id": "memory-1", "prompt": "Remember that my favorite color is teal. Save it with tag 'user-pref'. Then immediately search memory for 'color' and tell me what you found.", "check": {"type": "contains", "value": "teal"}}
+{"id": "plan-1", "prompt": "Write a Python function in /tmp/agi_eval_fizzbuzz.py that prints FizzBuzz for n in 1..15. Then run it and show the output.", "check": {"type": "all_contain", "values": ["FizzBuzz", "Buzz", "Fizz", "1\n2"]}}
