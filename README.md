@@ -17,6 +17,8 @@ agi/                     # core agent + runtime
   reflection.py          # auto-distill durable lessons after each task
   sandbox.py             # restricted Python exec for agent-authored tools
   tools.py               # tool registry: file/shell/web/memory/skills/synth/delegate
+  loop.py                # autonomous goal-loop with USD + step budget gating
+  skill_compiler.py      # propose new skills from successful traces (LLM)
   runtime.py             # Runtime + Session: multi-session manager with roles
   server.py              # HTTP/JSON façade for the runtime
   __main__.py            # CLI: python -m agi
@@ -105,6 +107,13 @@ curl -X POST -H 'Authorization: Bearer secret' \
      -H 'Content-Type: application/json' \
      -d '{"text":"the deploy completed"}' \
      http://localhost:8765/v1/sessions/<id>/inject
+
+# Run an autonomous goal-loop with a budget
+curl -X POST -H 'Authorization: Bearer secret' \
+     -H 'Content-Type: application/json' \
+     -d '{"goal":"Find every TODO in agi/ and write them to /tmp/todos.txt",
+          "max_steps":5, "max_cost_usd":0.50}' \
+     http://localhost:8765/v1/sessions/<id>/run_goal
 ```
 
 The full route table lives in `agi/server.py`. All routes return JSON;

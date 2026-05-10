@@ -228,6 +228,27 @@ class Session:
             snap["end_reason"] = reason
             return snap
 
+    def run_goal(
+        self,
+        goal: str,
+        *,
+        max_steps: int = 8,
+        max_cost_usd: float = 1.0,
+        max_iterations_per_step: int = 25,
+    ):
+        """Drive this session autonomously toward a goal under a budget.
+
+        Thin wrapper over `agi.loop.run_goal` so callers can stay inside
+        the Session API. Local import avoids a circular dependency.
+        """
+        from agi.loop import GoalBudget, run_goal
+        return run_goal(
+            self,
+            goal,
+            budget=GoalBudget(max_steps=max_steps, max_cost_usd=max_cost_usd),
+            max_iterations_per_step=max_iterations_per_step,
+        )
+
 
 # ---- runtime ----
 
@@ -415,6 +436,13 @@ class Runtime:
             "tools": sample_registry.descriptors() + [
                 {"name": "web_search", "description": "Server-side web search."},
                 {"name": "web_fetch", "description": "Server-side URL fetch."},
+                {
+                    "name": "delegate",
+                    "description": (
+                        "Spawn a sub-agent (planner/executor/critic). "
+                        "Available in roles where can_delegate=true."
+                    ),
+                },
             ],
             "skill_count": len(self.skills.all()),
             "memory_path": str(self.memory.path),

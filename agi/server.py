@@ -228,6 +228,26 @@ def _build_router() -> _Router:
         sess.inject_observation(text, role=body.get("role", "user"))
         return _ok({"ok": True, "session": sess.snapshot()})
 
+    def run_goal(h, m, body):
+        body = body or {}
+        goal = body.get("goal")
+        if not isinstance(goal, str) or not goal:
+            return _err(400, "missing 'goal' string")
+        sess = h.runtime.get(m.group("id"))
+        result = sess.run_goal(
+            goal,
+            max_steps=int(body.get("max_steps", 8)),
+            max_cost_usd=float(body.get("max_cost_usd", 1.0)),
+            max_iterations_per_step=int(body.get("max_iterations_per_step", 25)),
+        )
+        return _ok(
+            {
+                "summary": result.summary(),
+                "step_count": len(result.steps),
+                "session": sess.snapshot(),
+            }
+        )
+
     # Skills
 
     def list_skills(h, m, body):
@@ -313,6 +333,7 @@ def _build_router() -> _Router:
     r.add("GET",    r"/v1/sessions/(?P<id>[a-f0-9]+)/transcript", transcript)
     r.add("POST",   r"/v1/sessions/(?P<id>[a-f0-9]+)/step",       step_session)
     r.add("POST",   r"/v1/sessions/(?P<id>[a-f0-9]+)/inject",     inject)
+    r.add("POST",   r"/v1/sessions/(?P<id>[a-f0-9]+)/run_goal",   run_goal)
 
     r.add("GET",    r"/v1/skills",                     list_skills)
     r.add("POST",   r"/v1/skills",                     add_skill)
