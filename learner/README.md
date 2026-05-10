@@ -11,8 +11,41 @@ See [`../ARCHITECTURE.md`](../ARCHITECTURE.md) for the full design.
 |---|---|---|
 | `traces.py` | Append-only JSONL trace logger | Shipped |
 | `filter.py` | Quality gates: `eval_passing`, `min_quality`, `user_thumbs_up` | Shipped |
+| `goals.py` | `Goal` abstraction + `Addition` (first concrete goal) | Shipped |
+| `synth.py` | Synthetic labeled-data generators built from `Goal`s | Shipped |
+| `critic.py` | **Trace-quality critic** — tiny MLP + char-ngram featurizer | Shipped (CPU) |
+| `train_critic.py` | CLI: train critic on synthetic data, save model | Shipped (CPU) |
 | `train.py` | LoRA SFT script (HuggingFace transformers + PEFT + trl) | Shipped, needs GPU |
 | `local_agent.py` | Local base + adapter inference, same chat interface as `agi.Agent` | TODO |
+
+## The critic — first useful specialist
+
+Per `ARCHITECTURE.md` the critic is the verifier component: predicts P(passed)
+given (prompt, response). Plugs in as denser signal than eval-pass alone and
+cheaper than running an LLM as judge. v1 is a 2-layer MLP over hashed
+character n-grams (~500K params); trains on CPU in seconds; learns to filter
+hedging and garbage cleanly, struggles on subtle wrong-but-plausible answers
+(expected — surface features can't do arithmetic). Upgrade path: transformer
+encoder when this saturates.
+
+```sh
+python -m learner.train_critic --n-train 2000 --epochs 15 --out ./critic.pt
+```
+
+Output on synthetic addition (real run, no API needed):
+
+```
+params: 541,057
+epoch  1: loss=0.6537 acc=0.720
+epoch 15: loss=0.3099 acc=0.857
+eval: acc=0.738 prec=0.701 rec=0.833
+
+spot-check predictions:
+  '12+5='  → '17'           correct       P(passed)=0.690
+  '12+5='  → "I don't know" hedge         P(passed)=0.000
+  '12+5='  → 'asdf'         garbage       P(passed)=0.000
+  '99+99=' → '200'          wrong hard    P(passed)=0.483
+```
 
 ## Pipeline
 

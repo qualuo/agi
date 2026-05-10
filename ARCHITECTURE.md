@@ -232,13 +232,28 @@ plan honest.
 
 Building this in stages, smallest viable end-to-end loop first.
 
-### Stage 1 — Trace + filter + LoRA training (skeleton) ← current
+### Stage 1 — Trace + filter + LoRA training (skeleton)
 
 - [x] `learner/traces.py` — append-only JSONL trace logger
 - [x] `learner/filter.py` — quality gates (eval_passing, min_quality, user_thumbs_up)
 - [x] `learner/train.py` — LoRA SFT script (runs on GPU)
-- [ ] Wire trace logging into `agi.Agent`
+- [x] Wire trace logging into `agi.Agent`
 - [ ] `learner/local_agent.py` — load base + adapter, expose same chat interface
+
+### Stage 1.5 — First specialist: trace-quality critic ← current
+
+The critic is the verifier component (above). Building it as a CPU-tractable
+specialist gives us: a real learning loop running today, a useful artifact
+that plugs into the architecture, and a substrate that grows as we collect
+real traces.
+
+- [x] `learner/goals.py` — `Goal` abstraction; `Addition` as first concrete goal
+- [x] `learner/synth.py` — synthetic labeled-data generators
+- [x] `learner/critic.py` — char-ngram featurizer + tiny MLP, train/predict/save/load
+- [x] `learner/train_critic.py` — CLI; verified accuracy climbs from chance to 85% train / 74% eval on synthetic addition
+- [ ] Train critic on real traces once a meaningful pool accumulates
+- [ ] Plug critic into `agi.Agent` as an optional output filter (drop responses below P(passed) threshold)
+- [ ] Critic-as-reward for the LoRA loop in stage 2
 
 ### Stage 2 — Eval-gated adapter deployment
 
