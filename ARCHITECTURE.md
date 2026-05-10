@@ -193,6 +193,86 @@ rollback story.
 11. (Async, periodic) adapter training reads filtered traces, trains, validates,
     swaps adapter on success.
 
+## Runtime engine — the control plane around the agent
+
+The components above describe one *worker* — one Agent reasoning on one task
+at a time. Production use needs a control plane around it: a stable, callable
+surface that lets an external **coordination engine** (workflow system, DAG
+scheduler, custom orchestrator) treat the agent as a service rather than a
+script.
+
+```
+                ┌────────────────────────────────────────┐
+                │       External coordination engine      │
+                │ (Temporal, Airflow, in-house, or the    │
+                │  Coordinator in agi.coordinator)        │
+                └──────────────────┬─────────────────────┘
+                                   │ Python API or HTTP/SSE
+                                   ▼
+            ┌──────────────────────────────────────────────┐
+            │                   Runtime                     │
+            │  sessions · jobs · budgets · cancel ·         │
+            │  event streams · metrics · snapshot/restore   │
+            └──────────────────┬───────────────────────────┘
+                               │ drives chat_controlled(...)
+                ┌──────────────┴───────────────┬────────────┐
+                ▼                              ▼            ▼
+          ┌─────────┐                    ┌─────────┐   ┌─────────┐
+          │ Agent A │                    │ Agent B │   │ Agent C │
+          │ (sess1) │                    │ (sess2) │   │ (sess3) │
+          └────┬────┘                    └─────────┘   └─────────┘
+               │ tool: delegate
+               ▼
+          ┌─────────┐
+          │ Agent D │  ← spawned through the same Runtime.
+          │ (child) │     Costs and traces roll up.
+          └─────────┘
+```
+
+**Sessions** are long-lived agent instances with stable IDs, isolated memory,
+optional role / system-prompt overrides. **Jobs** are units of work submitted
+to a session. Each job has:
+
+- a $ budget, checked between agent turns (`BudgetExceeded` short-circuits
+  runaway loops — the most important production-safety knob)
+- a cooperative cancel signal (worker stops on the next iteration)
+- a structured event stream (text deltas, tool_use, tool_result, status
+  transitions, usage updates)
+- a final record (`status`, `output`, `cost_usd`, `input/output_tokens`,
+  `error`, `iterations`)
+
+Concurrency: a `ThreadPoolExecutor` runs jobs across sessions in parallel; a
+per-session lock serializes jobs *within* a session so the same Agent isn't
+re-entered. Snapshot/restore persists session and job records to disk; jobs
+that were running at snapshot time are marked `failed` on restore (honest
+about what we can and can't recover).
+
+**The agent as coordinator.** When Agent runs under a Runtime, a `delegate`
+tool is registered: the agent can spawn a child session/job and synchronously
+wait for the result. This is how the same primitive supports both "external
+orchestrator drives N agents" and "one agent decomposes a task into
+subagents." Parent IDs are recorded in metadata so the call graph is
+reconstructable from traces.
+
+**The Coordinator** in `agi.coordinator` is a small DAG executor that uses
+the Runtime: declare nodes with `depends_on` and `{upstream}` placeholders,
+get parallel execution where the graph allows, with upstream-failure
+short-circuit. It is one possible coordinator; the point of the Runtime is
+that any other coordinator — written in Python or any language with an HTTP
+client — can drive the same surface.
+
+**The HTTP control plane** in `agi.server` exposes the Runtime as JSON+SSE
+over stdlib `http.server`. A coordination engine in Go, TypeScript, or Rust
+can `POST /v1/sessions/{id}/jobs` and `GET /v1/jobs/{id}/events` to drive a
+fleet of agents without speaking Python.
+
+**Why this lives in the architecture doc, not just engineering.** A learning
+system that can't be deployed as infrastructure is a research artifact. The
+runtime is the bridge between the components above and a real coordinator —
+it's what lets the durable-improvement loops (memory, skills, adapters) be
+operated, observed, and budgeted in production rather than only on a
+researcher's laptop.
+
 ## Pluggable choices
 
 The architecture commits to *shape*, not *specifics*. These swap independently:

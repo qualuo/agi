@@ -4,6 +4,10 @@
 go in the API request, the handlers are dispatched on `tool_use` blocks.
 File and shell tools touch the host directly — run this in a sandbox if you
 don't trust the model's choices.
+
+When invoked through agi.runtime.Runtime, an additional `delegate` tool is
+registered: the agent can spawn a child session/job and synchronously wait
+for its result. This is how the Agent itself becomes a coordinator.
 """
 from __future__ import annotations
 
@@ -14,7 +18,12 @@ from typing import Any, Callable
 from agi.memory import Memory
 
 
-def make_tools(memory: Memory) -> tuple[list[dict[str, Any]], dict[str, Callable[..., str]]]:
+def make_tools(
+    memory: Memory,
+    *,
+    runtime=None,
+    parent_agent=None,
+) -> tuple[list[dict[str, Any]], dict[str, Callable[..., str]]]:
     def read_file(path: str) -> str:
         p = Path(path).expanduser()
         if not p.exists():
@@ -181,5 +190,62 @@ def make_tools(memory: Memory) -> tuple[list[dict[str, Any]], dict[str, Callable
         "search_memory": search_memory,
         "recent_memory": recent_memory,
     }
+
+    # ---- delegate (only available when running under a Runtime) ----
+    if runtime is not None:
+        def delegate(
+            prompt: str,
+            role: str | None = None,
+            budget_usd: float = 0.50,
+            timeout_seconds: int = 300,
+            max_iterations: int = 15,
+        ) -> str:
+            """Spawn a child agent through the Runtime and wait for the result.
+
+            This is the agent's own subagent primitive. Cost is rolled up into
+            the runtime's metrics; the parent's session id is recorded so an
+            external coordinator can trace the call graph.
+            """
+            parent_session_id = getattr(parent_agent, "session_id", None) if parent_agent else None
+            session = runtime.create_session(role=role, metadata={"parent_session_id": parent_session_id})
+            parent_job_id = None  # parent job id isn't surfaced to the agent in v1
+            job = runtime.submit(
+                session.id,
+                prompt,
+                budget_usd=budget_usd,
+                max_iterations=max_iterations,
+                parent_job_id=parent_job_id,
+                metadata={"parent_session_id": parent_session_id},
+            )
+            try:
+                result = runtime.await_job(job.id, timeout=timeout_seconds)
+            except TimeoutError:
+                runtime.cancel(job.id)
+                return f"error: subagent timed out after {timeout_seconds}s"
+            if result.status == "succeeded":
+                return result.output
+            return f"error: subagent {result.status}: {result.error or '(no detail)'}"
+
+        schemas.append({
+            "name": "delegate",
+            "description": (
+                "Spawn a child agent in a fresh session through the runtime "
+                "and wait for its final answer. Use to parallelize subtasks, "
+                "isolate context, or run an independent role (e.g. 'critic'). "
+                "Subagent cost counts against the runtime's total budget."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "Task for the subagent."},
+                    "role": {"type": "string", "description": "Optional role label for observability."},
+                    "budget_usd": {"type": "number", "description": "Max $ for the subagent (default 0.50).", "default": 0.50},
+                    "timeout_seconds": {"type": "integer", "description": "Wall-clock timeout (default 300).", "default": 300},
+                    "max_iterations": {"type": "integer", "description": "Max agent loop iterations (default 15).", "default": 15},
+                },
+                "required": ["prompt"],
+            },
+        })
+        handlers["delegate"] = delegate
 
     return schemas, handlers
