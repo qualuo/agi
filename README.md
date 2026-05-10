@@ -10,11 +10,13 @@ coordination engine can drive.
 ## What's in here
 
 ```
-agi/                # runtime + agent
+agi/                # runtime + agent + reference coordinator
   runtime.py        # Runtime, Session, SessionConfig — the engine surface
   events.py         # EventBus + typed Event kinds (the coordination signal)
   server.py         # HTTP+SSE server exposing Runtime (stdlib only)
   agent.py          # streaming agent loop — adaptive thinking + tool dispatch
+  coordinator.py    # reference Coordinator + Goal/Plan/PlanStep abstractions
+  skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
   toolsynth.py      # sandboxed Python tool synthesis (subprocess isolated)
   tasks.py          # Task / TaskQueue / TaskRunner — scheduled work
@@ -53,6 +55,36 @@ python -m agi "summarize ./README.md"  # one-shot
 python evals/run.py                    # run the eval suite
 python -m agi.server --port 8765       # start HTTP runtime
 ```
+
+## Coordinator — the reference driver
+
+The `Coordinator` is a reference implementation of a coordination engine
+sitting *above* the Runtime. It accepts a `Goal` (declarative intent +
+budget), runs it through a pluggable `decomposer` to produce a `Plan`
+of dependent `PlanStep`s, dispatches each step as a `Task` against the
+runtime queue, and aggregates step results.
+
+```python
+from agi.coordinator import Coordinator, Goal, Plan, PlanStep
+from agi.runtime import Runtime
+
+def planner(goal):
+    return Plan(steps=[
+        PlanStep(id="plan",       role="planner",    prompt=f"plan: {goal.intent}"),
+        PlanStep(id="gather",     role="researcher", prompt=f"gather: {goal.intent}", depends_on=["plan"]),
+        PlanStep(id="synthesize", role="writer",     prompt=f"summarize: {goal.intent}", depends_on=["gather"]),
+    ])
+
+result = Coordinator(Runtime(), decomposer=planner).run(
+    Goal(intent="summarize LoRA adapters in production", budget_usd=1.0)
+)
+print(result.final_text)
+```
+
+The Coordinator talks to the Runtime only through its public API
+(`create_session`, `chat`, `bus.subscribe`, `metrics`) — any other
+planner can use the same surface. See `examples/coordinator_e2e.py`
+for a full run including skill mining.
 
 ## Runtime API — for a coordination engine
 
@@ -170,8 +202,8 @@ research vs. tractable engineering.
 
 ```sh
 python -m unittest discover tests
-# 119 tests across events, skills, toolsynth, runtime, server, persistence,
-# tasks, agent, learner
+# 131 tests across events, skills, toolsynth, runtime, server, persistence,
+# tasks, coordinator, skillmine, agent, learner
 ```
 
 All tests run without an API key; they exercise the runtime, sandbox, and
