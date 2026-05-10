@@ -251,8 +251,8 @@ real traces.
 - [x] `learner/synth.py` — synthetic labeled-data generators
 - [x] `learner/critic.py` — char-ngram featurizer + tiny MLP, train/predict/save/load
 - [x] `learner/train_critic.py` — CLI; verified accuracy climbs from chance to 85% train / 74% eval on synthetic addition
+- [x] Plug critic into `agi.Agent` as an optional output filter (drop responses below P(passed) threshold). v1 annotates; future: regenerate / refuse / structured uncertainty.
 - [ ] Train critic on real traces once a meaningful pool accumulates
-- [ ] Plug critic into `agi.Agent` as an optional output filter (drop responses below P(passed) threshold)
 - [ ] Critic-as-reward for the LoRA loop in stage 2
 
 ### Stage 2 — Eval-gated adapter deployment
