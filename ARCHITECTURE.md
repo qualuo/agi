@@ -264,10 +264,43 @@ real traces.
 
 ### Stage 3 — Skill library
 
-- [ ] `learner/skills.py` — directory of markdown skills, retrieve by description
+- [x] `agi/skills.py` — directory of markdown skills, retrieve by description (keyword + trigger)
+- [x] Integrate into Agent: load top-K relevant skills into system prompt
+- [x] Tools `list_skills` / `read_skill` / `add_skill` so the agent can author
+      its own skills mid-session
 - [ ] Skill compilation: an LLM pass that proposes new skills from recent
       successful traces, with human review before commit
-- [ ] Integrate into Agent: load top-K relevant skills into system prompt
+- [ ] Embedding-backed skill retrieval (depends on Stage 4)
+
+### Stage 3.5 — Runtime engine (current)
+
+The runtime is the layer between an external **coordination engine**
+(planner, workflow orchestrator, multi-tool router) and a fleet of
+agent sessions. It exposes a stable contract that survives changes
+to the agent internals, and lets a coordinator drive many concurrent
+sessions with shared memory and skills.
+
+- [x] `agi/runtime.py` — `Runtime`, `Session`, `Role`. Multi-session
+      manager. Roles configure system prompt, allowed tool subset,
+      effort, and whether delegation is permitted.
+- [x] Lifecycle hooks (`agi.Hooks`) — text/thinking deltas, tool calls,
+      tool results, step completion → user callbacks.
+- [x] `agi/server.py` — HTTP/JSON façade (`POST /v1/sessions`,
+      `POST /v1/sessions/{id}/step`, `GET /v1/capabilities`, etc.) so
+      out-of-process coordinators can drive the runtime.
+- [x] Capability descriptors — stable JSON of roles + tools + policy
+      knobs, returned from `Runtime.capabilities()`.
+- [x] `agi/sandbox.py` — restricted Python exec for agent-authored
+      tools (`make_tool`). Whitelisted stdlib, no eval/open/import,
+      AST-static check + runtime gate, wall-clock timeout.
+- [x] Multi-agent delegation — `delegate(role, task)` spawns a sub-agent
+      bound to the same Runtime and shared memory.
+- [x] Reflection module (`agi/reflection.py`) — opt-in Haiku call per
+      turn that writes durable lessons to long-term memory tagged
+      `lesson`, surfacing on the next related task via memory search.
+- [ ] Streaming step API over HTTP (Server-Sent Events) so the
+      coordinator can react mid-turn rather than only at completion.
+- [ ] Async Python wrappers around `Session.step` for concurrency.
 
 ### Stage 4 — Semantic memory
 

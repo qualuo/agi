@@ -59,7 +59,9 @@ class TestTools(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
         self.memory = Memory(path=self.tmp / "m.jsonl")
-        self.schemas, self.handlers = make_tools(self.memory)
+        self.registry = make_tools(self.memory)
+        self.schemas = self.registry.schemas
+        self.handlers = self.registry.handlers
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -90,6 +92,16 @@ class TestTools(unittest.TestCase):
         self.handlers["save_memory"](text="i like pizza", tags=["food"])
         result = self.handlers["search_memory"](query="pizza")
         self.assertIn("pizza", result)
+
+    def test_make_tool_is_present_by_default(self):
+        self.assertIn("make_tool", self.handlers)
+
+    def test_dispatch_records_call_log(self):
+        self.handlers["save_memory"](text="x")
+        # Direct call doesn't log; dispatch does.
+        out, is_error = self.registry.dispatch("save_memory", {"text": "y"})
+        self.assertFalse(is_error)
+        self.assertIn("save_memory", self.registry.call_log)
 
 
 class FakeResponseUsage:
