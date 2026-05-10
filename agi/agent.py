@@ -11,6 +11,8 @@ returns results inline; our `_dispatch_tool_calls` skips them.
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 from typing import Callable
 
 import anthropic
@@ -18,6 +20,8 @@ import anthropic
 from agi.costs import Usage
 from agi.memory import Memory
 from agi.tools import make_tools
+from agi.tools_extension import make_extension_tools
+from agi.world_model import WorldModel
 
 try:
     from learner.traces import TraceLogger
@@ -25,21 +29,47 @@ except ImportError:  # learner package optional
     TraceLogger = None  # type: ignore
 
 
-SYSTEM_PROMPT = """\
+SYSTEM_PROMPT_BASE = """\
 You are an agent built on Claude Opus 4.7. You have tools to read and write files,
-run shell commands, search and fetch the web, and manage a persistent long-term
-memory that survives across sessions.
+run shell commands, search and fetch the web, manage a persistent long-term
+memory, retrieve and invoke skills from a skill library, delegate to subagents,
+synthesize new tools, propose typed task graphs for a coordination engine to
+execute, and record structured observations in a world model.
 
 Operating principles:
-- Plan before acting on multi-step tasks. Decompose, then execute.
+- Plan before acting on multi-step tasks. Decompose, then execute. For ambiguous
+  multi-step work, call `plan_graph` and let the coordinator dispatch it.
+- Retrieve skills before re-deriving. Call `list_skills(query)` at task start;
+  if a skill matches, `invoke_skill(name, args_json)` to read its SOP, then follow it.
 - Use tools instead of guessing. If you need a file's contents, read it. If you
   need a fact, search the web. If you remember something useful, save it.
 - Use long-term memory deliberately. Save user preferences, project facts, and
   durable lessons learned. Search memory at the start of related tasks.
+- Use the world model. After meaningful actions (file write, URL fetch, command
+  run), call `remember_observation` so future tasks can avoid redoing work.
+- Delegate when a subtask is independently scoped. `delegate(task, role)` runs
+  a focused subagent and returns its answer.
 - Verify before claiming success. Read back files you wrote. Run tests where
   applicable. State limitations honestly.
 - Be terse. Skip preamble. Show the work, not the throat-clearing.
 """
+
+ROLE_PROMPTS: dict[str, str] = {
+    "planner": (
+        "ROLE: planner. Your job is to decompose a goal into a typed task DAG "
+        "(GraphSpec JSON). Do NOT execute the work yourself; produce the graph "
+        "and stop. Use the `decompose-goal` skill if uncertain about the shape."
+    ),
+    "executor": (
+        "ROLE: executor. Your job is to make the goal happen end-to-end. Use "
+        "tools, retrieve skills, verify your output."
+    ),
+    "critic": (
+        "ROLE: critic. Score a candidate response for correctness and "
+        "trustworthiness on a 0.0–1.0 scale. Reply with JSON only: "
+        '{"score": <float>, "explanation": "<one sentence>"}.'
+    ),
+}
 
 
 def _stringify_tool_result(result) -> str:
@@ -61,6 +91,11 @@ class Agent:
         tracer=None,
         critic=None,
         critic_threshold: float = 0.5,
+        role: str | None = None,
+        world_model: WorldModel | None = None,
+        enable_extensions: bool = True,
+        extra_system_prompt: str | None = None,
+        skill_library=None,
     ) -> None:
         self.client = anthropic.Anthropic()
         self.memory = memory or Memory()
@@ -72,12 +107,39 @@ class Agent:
         self.critic = critic  # optional learner.Critic; gates final output
         self.critic_threshold = critic_threshold
         self.last_critic_score: float | None = None
+        self.role = role
+        self.world_model = world_model or WorldModel()
+        self.extra_system_prompt = extra_system_prompt
         self.messages: list[dict] = []
         self.usage = Usage()
+        self.synthesized_tools: dict[str, dict] = {}
+
+        if skill_library is None:
+            try:
+                from agi.skills.library import SkillLibrary
+                self.skill_library = SkillLibrary()
+            except Exception:
+                self.skill_library = None
+        else:
+            self.skill_library = skill_library
 
         schemas, handlers = make_tools(self.memory)
         self.tool_schemas: list[dict] = list(schemas)
         self.handlers: dict[str, Callable[..., str]] = handlers
+
+        if enable_extensions:
+            def _sub_factory(r):
+                # Defer construction so we don't recurse through extensions.
+                return Agent(verbose=False, role=r, enable_extensions=False,
+                             skill_library=self.skill_library,
+                             world_model=self.world_model)
+            ext_schemas, ext_handlers, synthesized = make_extension_tools(
+                world_model=self.world_model,
+                agent_factory=_sub_factory,
+            )
+            self.tool_schemas.extend(ext_schemas)
+            self.handlers.update(ext_handlers)
+            self.synthesized_tools = synthesized
 
         if enable_web_search:
             self.tool_schemas.append(
@@ -93,6 +155,10 @@ class Agent:
         self.usage = Usage()
 
     def chat(self, user_input: str, max_iterations: int = 25) -> str:
+        # Retrieve relevant skills before adding the user turn so they appear
+        # in earlier context (better prompt-cache reuse on repeat queries).
+        if not self.messages:
+            self._maybe_load_skills(user_input)
         self.messages.append({"role": "user", "content": user_input})
         last_text = ""
         turn_usage = Usage()
@@ -169,14 +235,51 @@ class Agent:
             return response + warning, score
         return response, score
 
+    def _system_prompt(self) -> str:
+        parts = [SYSTEM_PROMPT_BASE]
+        if self.role and self.role in ROLE_PROMPTS:
+            parts.append(ROLE_PROMPTS[self.role])
+        if self.extra_system_prompt:
+            parts.append(self.extra_system_prompt)
+        # Surface synthesized tools so the model knows they exist.
+        if self.synthesized_tools:
+            names = ", ".join(self.synthesized_tools.keys())
+            parts.append(f"Synthesized tools available this session: {names}")
+        return "\n\n".join(parts)
+
+    def _maybe_load_skills(self, prompt: str) -> None:
+        """Inject the top-K skills relevant to the prompt as a user-role note.
+
+        Done once per chat call. Skills are only retrieved; whether to follow
+        one is the model's call.
+        """
+        if not self.skill_library:
+            return
+        try:
+            skills = self.skill_library.retrieve(prompt, k=2)
+        except Exception:
+            return
+        if not skills:
+            return
+        block = ["[skills you may find useful for this task]"]
+        for s in skills:
+            block.append(f"\n--- {s.name}: {s.description}\n{s.body}\n")
+        self.messages.append({"role": "user", "content": "\n".join(block)})
+
     def _stream_one(self):
+        # Refresh extension tools that may have been synthesized mid-session.
+        if self.synthesized_tools:
+            for name, entry in self.synthesized_tools.items():
+                if entry["schema"] not in self.tool_schemas:
+                    self.tool_schemas.append(entry["schema"])
+                self.handlers[name] = entry["fn"]
         with self.client.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
             system=[
                 {
                     "type": "text",
-                    "text": SYSTEM_PROMPT,
+                    "text": self._system_prompt(),
                     "cache_control": {"type": "ephemeral"},
                 }
             ],

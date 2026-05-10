@@ -1,7 +1,84 @@
 # Architecture
 
-A system that learns and adapts to new input. Honest about what's open research
-vs. what's tractable engineering.
+A system that learns and adapts to new input, exposed as a runtime that a
+coordination engine can drive. Honest about what's open research vs. what's
+tractable engineering.
+
+## Two views
+
+There are two ways to look at this system. Both are first-class:
+
+**View 1 — the agent.** A goal-directed loop over a reasoning core, with
+tools, memory, skills, and a world model. This is what you interact with
+when you run `python -m agi`.
+
+**View 2 — the runtime.** The same loop, exposed over a stable HTTP/JSON
+protocol so an external coordination engine can submit tasks, dispatch task
+graphs, stream events, and verify outputs. This is the integration surface.
+
+The agent *is* the runtime. The HTTP server in `agi/runtime/` is just an
+adapter that surfaces the same primitives to network callers. A coordination
+engine can target the in-process Runtime directly, or talk to it over HTTP —
+the protocol is the same.
+
+## Runtime API (the contract for a coordination engine)
+
+The runtime exposes the following over HTTP:
+
+| Endpoint                       | Verb   | Purpose                                  |
+|--------------------------------|--------|------------------------------------------|
+| `/capabilities`                | GET    | Machine-readable descriptor              |
+| `/tasks`                       | POST   | Submit a task (`kind`, `input`, `role`)  |
+| `/tasks/{id}`                  | GET    | Task status + result                     |
+| `/tasks/{id}/stream`           | GET    | SSE stream of task events                |
+| `/tasks/{id}/cancel`           | POST   | Request cancellation                     |
+| `/graphs`                      | POST   | Submit a typed task DAG (`GraphSpec`)    |
+| `/graphs/{id}`                 | GET    | Latest event for the graph               |
+| `/graphs/{id}/stream`          | GET    | SSE stream of graph events               |
+| `/events`                      | GET    | SSE stream of all runtime events         |
+| `/skills` , `/skills/{name}`   | GET    | List / read skills                       |
+| `/healthz`                     | GET    | Liveness                                 |
+
+Task kinds the runtime understands today:
+
+- `chat` — full agent turn, returns `{text, critic_score?}`
+- `plan` — decompose a goal into a `GraphSpec`
+- `critique` — score a candidate response, returns `{score, explanation}`
+- `skill.invoke` — run a named skill from the library
+- `tool` — run a single registered tool directly (bypass LLM)
+- `noop` — synthetic success, useful for graph-shape testing
+
+Features baked into the protocol:
+
+- **Idempotency** via `dedup_key` — resubmitting returns the same task id.
+- **Budgets** per task (`budget_tokens`, `budget_seconds`).
+- **Cancellation** — workers observe a cancel flag between LLM turns.
+- **Parameter substitution** in graphs — node inputs can reference
+  upstream outputs as `${node_id.field}`; the executor resolves before
+  dispatch.
+- **Per-node failure policy** — `fail_graph` (default), `skip`, `retry:N`.
+
+The protocol's source of truth is `agi/runtime/capabilities.py`. Anything
+not described there is not part of the contract.
+
+## The agent's loop
+
+A single `chat()` turn does the following:
+
+1. On the first turn, retrieve top-K skills from the library by keyword
+   match against the prompt; inject as a user-role context message.
+2. Append the user message; call the model with the tool surface plus a
+   role-aware system prompt.
+3. Stream the response. On `tool_use`, dispatch the handler; on
+   `pause_turn`, re-call; loop.
+4. After `end_turn`, optionally score the final text with the trained
+   critic (drops below threshold get an uncertainty annotation).
+5. Persist the full trace (messages + usage + metadata) to JSONL for the
+   learning loop.
+
+The runtime adds: a thread-safe task store, a worker pool that pulls tasks
+off a queue, and an event bus that emits structured events as each task
+runs. A coordination engine subscribes to the bus to observe progress.
 
 ## The core insight: learning operates at multiple timescales
 
@@ -23,6 +100,34 @@ no clean signal, no rollback). The architecture sidesteps this by composing the
 A system updating across all four faster timescales adapts substantially to new
 input — not the same as biological learning, but durably more than scaffolding
 alone.
+
+## The coordination engine
+
+A coordination engine sits *above* the runtime. It owns the goal, decides how
+to decompose it, dispatches into one or more runtimes, and aggregates the
+result. We ship a reference implementation in `agi/coordination/` so the
+protocol has at least one consumer in-tree.
+
+```
+┌────────────────────────────┐         submit graph        ┌────────────────────────┐
+│   Coordination engine      │ ──────────────────────────▶ │     Runtime            │
+│                            │                             │                        │
+│  - owns the goal            │ ◀──────── events ────────── │  - workers             │
+│  - plans (via runtime)      │       (SSE / in-proc bus)   │  - graph executor      │
+│  - dispatches graphs        │                             │  - skills + memory     │
+│  - verifies + revises       │ ──── critique task ───────▶ │  - trace log           │
+│  - aggregates outcomes      │                             │                        │
+└────────────────────────────┘                             └────────────────────────┘
+```
+
+The split matters:
+- The **runtime** is stateless w.r.t. goals. It takes tasks, runs them, emits events.
+- The **coordinator** owns the goal lifecycle, the revision policy, and the budget.
+- One coordinator → many runtimes (sharding by capability, region, or trust).
+- Many coordinators → one runtime (the runtime is the shared substrate).
+
+This is the same shape as a process scheduler over CPUs, or a workflow engine
+over executors. We're applying that pattern to LLM-driven work.
 
 ## Components
 
@@ -327,3 +432,25 @@ These are real questions, not rhetorical:
 6. **Sim-to-real for tools.** Should the agent train in a sandbox first,
    then transfer to real tools? Risk of harmful actions during learning
    is otherwise non-trivial.
+
+## Runtime module layout
+
+The runtime layer is composed of small, replaceable pieces. Each one is the
+in-process implementation of one row of the protocol contract.
+
+| Module                          | Owns                                              |
+|---------------------------------|---------------------------------------------------|
+| `agi/runtime/tasks.py`          | `Task` state machine + `TaskStore` (dedup, parent/child) |
+| `agi/runtime/events.py`         | `EventBus` — pub/sub with bounded per-topic history |
+| `agi/runtime/worker.py`         | Agent-backed handlers for each task `kind`        |
+| `agi/runtime/graph.py`          | DAG executor with `${node.field}` substitution and per-node failure policy |
+| `agi/runtime/server.py`         | stdlib `ThreadingHTTPServer`, SSE streaming, JSON body parsing |
+| `agi/runtime/capabilities.py`   | Single source of truth for the protocol descriptor |
+| `agi/coordination/coordinator.py` | Reference coordinator: plan → execute → verify → revise |
+| `agi/skills/library.py`         | Markdown-with-frontmatter SOPs, keyword retrieval |
+| `agi/world_model.py`            | Observed-entity log: file/url/command + outcome  |
+| `agi/tools_extension.py`        | `delegate`, `make_tool`, `plan_graph`, `invoke_skill`, `remember_observation` |
+| `agi/planner.py`                | LLM-driven goal-to-GraphSpec decomposition       |
+
+The contract is the HTTP protocol + the `GraphSpec`/`TaskSpec` JSON shapes.
+Modules are swappable as long as the contract holds.
