@@ -155,6 +155,95 @@ class TestServer(unittest.TestCase):
         self.assertIn("session.created", kinds)
         self.assertIn("chat.completed", kinds)
 
+    def test_metrics(self):
+        status, body = _get(f"{self.base}/metrics")
+        self.assertEqual(status, 200)
+        self.assertIn("sessions_created", body)
+        self.assertIn("total_cost_usd", body)
+
+    def test_tasks_endpoint_404_without_queue(self):
+        try:
+            _get(f"{self.base}/tasks")
+            self.fail("expected 404")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 404)
+
+
+class TestServerWithTaskQueue(unittest.TestCase):
+    def setUp(self):
+        from agi.tasks import TaskQueue
+        self.runtime = _make_runtime()
+        self.queue = TaskQueue()
+        self.server = RuntimeServer(
+            self.runtime, host="127.0.0.1", port=0, task_queue=self.queue
+        )
+        self.server.start()
+        self.base = self.server.base_url
+
+    def tearDown(self):
+        self.server.stop()
+
+    def test_submit_drain_get(self):
+        status, body = _post(f"{self.base}/tasks", {"prompt": "hi"})
+        self.assertEqual(status, 201)
+        tid = body["id"]
+
+        status, body = _post(f"{self.base}/tasks/drain", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["executed"], 1)
+
+        status, body = _get(f"{self.base}/tasks/{tid}")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "done")
+        self.assertEqual(body["result"], "ok")
+
+
+class TestServerWithSessionStore(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from agi.persistence import SessionStore
+        self.tmp = tempfile.mkdtemp()
+        self.runtime = Runtime(
+            memory=Memory(path=Path(self.tmp) / "m.jsonl"),
+            skills=SkillLibrary(path=Path(self.tmp) / "skills"),
+            agent_factory=FakeAgent,
+            session_store=SessionStore(path=Path(self.tmp) / "sessions"),
+        )
+        self.server = RuntimeServer(self.runtime, host="127.0.0.1", port=0)
+        self.server.start()
+        self.base = self.server.base_url
+
+    def tearDown(self):
+        self.server.stop()
+
+    def test_checkpoint_and_restore_roundtrip(self):
+        _, body = _post(f"{self.base}/sessions", {})
+        sid = body["id"]
+        _post(f"{self.base}/sessions/{sid}/chat", {"prompt": "hi"})
+        status, body = _post(f"{self.base}/sessions/{sid}/checkpoint", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(Path(body["path"]).exists())
+
+        # Reload by simulating a new server backed by a fresh runtime that
+        # points at the same session store.
+        from agi.persistence import SessionStore
+        runtime2 = Runtime(
+            memory=Memory(path=Path(self.tmp) / "m.jsonl"),
+            skills=SkillLibrary(path=Path(self.tmp) / "skills"),
+            agent_factory=FakeAgent,
+            session_store=SessionStore(path=Path(self.tmp) / "sessions"),
+        )
+        server2 = RuntimeServer(runtime2, host="127.0.0.1", port=0)
+        server2.start()
+        try:
+            status, body = _post(f"{server2.base_url}/sessions/restore", {"session_id": sid})
+            self.assertEqual(status, 200)
+            self.assertEqual(body["id"], sid)
+            status, body = _get(f"{server2.base_url}/sessions/{sid}")
+            self.assertEqual(body["turn_count"], 1)
+        finally:
+            server2.stop()
+
 
 class TestServerAuth(unittest.TestCase):
     def setUp(self):

@@ -282,6 +282,11 @@ class Session:
         )
         if self.state.config.system_prompt_extra and hasattr(agent, "extra_system"):
             agent.extra_system = self.state.config.system_prompt_extra
+        # Restore conversation messages if hydrating from a checkpoint
+        pending = getattr(self, "_pending_messages", None)
+        if pending and hasattr(agent, "messages"):
+            agent.messages = list(pending)
+            self._pending_messages = None  # type: ignore[attr-defined]
         if self._tool_synth is not None and self.state.config.enable_tool_synthesis:
             if hasattr(agent, "attach_tool_synth"):
                 agent.attach_tool_synth(self._tool_synth, self._bus, self.state.id)
@@ -340,6 +345,8 @@ class Runtime:
         critic=None,
         agent_factory: Callable[..., Any] | None = None,
         skills_dir: str | Path | None = None,
+        session_store=None,
+        max_concurrent_sessions: int | None = None,
     ) -> None:
         self.memory = memory or Memory()
         self.skills = skills or SkillLibrary(path=skills_dir)
@@ -350,6 +357,18 @@ class Runtime:
         self._agent_factory = agent_factory
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
+        self.session_store = session_store
+        self.max_concurrent_sessions = max_concurrent_sessions
+        self._metrics: dict[str, Any] = {
+            "started_ts": time.time(),
+            "sessions_created": 0,
+            "sessions_ended": 0,
+            "chats_completed": 0,
+            "errors": 0,
+            "tool_synth_calls": 0,
+            "subagent_spawns": 0,
+        }
+        self.bus.subscribe(self._record_metric)
 
     # --- discovery ---------------------------------------------------
 
@@ -384,17 +403,25 @@ class Runtime:
         *,
         session_id: str | None = None,
         parent_session_id: str | None = None,
+        namespace: str | None = None,
     ) -> str:
         sid = session_id or uuid.uuid4().hex[:12]
         cfg = config or SessionConfig()
         with self._lock:
+            if self.max_concurrent_sessions is not None:
+                active = sum(1 for s in self._sessions.values() if not s.state.ended)
+                if active >= self.max_concurrent_sessions:
+                    raise RuntimeError(
+                        f"runtime at session capacity ({self.max_concurrent_sessions})"
+                    )
             if sid in self._sessions:
                 raise ValueError(f"session id already exists: {sid}")
+            memory = self.memory.namespaced(namespace) if namespace else self.memory
             session = Session(
                 session_id=sid,
                 config=cfg,
                 bus=self.bus,
-                memory=self.memory,
+                memory=memory,
                 skills=self.skills,
                 tool_synth=self.tool_synth,
                 tracer=self.tracer,
@@ -407,9 +434,82 @@ class Runtime:
         self.bus.publish(Event(
             kind=SESSION_CREATED,
             session_id=sid,
-            data={"config": cfg.__dict__, "parent_session_id": parent_session_id},
+            data={"config": cfg.__dict__, "parent_session_id": parent_session_id, "namespace": namespace},
         ))
         return sid
+
+    def restore_session(self, session_id: str) -> str:
+        """Hydrate a session from the session store. Requires session_store
+        to be configured. Returns the session id on success."""
+        if self.session_store is None:
+            raise RuntimeError("runtime has no session_store configured")
+        payload = self.session_store.load(session_id)
+        state, messages = self.session_store.hydrate(payload)
+        with self._lock:
+            if session_id in self._sessions:
+                raise ValueError(f"session {session_id} is already loaded")
+            session = Session(
+                session_id=session_id,
+                config=state.config,
+                bus=self.bus,
+                memory=self.memory,
+                skills=self.skills,
+                tool_synth=self.tool_synth,
+                tracer=self.tracer,
+                critic=self.critic,
+                agent_factory=self._agent_factory,
+                parent_session_id=state.parent_session_id,
+            )
+            session.state = state
+            session._spawn_subagent = self._spawn_subagent_for(session)  # type: ignore[assignment]
+            # Lazy-construct the agent so we can pre-load messages.
+            session._pending_messages = messages  # type: ignore[attr-defined]
+            self._sessions[session_id] = session
+        self.bus.publish(Event(
+            kind=SESSION_CREATED,
+            session_id=session_id,
+            data={"restored": True, "turn_count": state.turn_count},
+        ))
+        return session_id
+
+    def checkpoint_session(self, session_id: str) -> Path:
+        if self.session_store is None:
+            raise RuntimeError("runtime has no session_store configured")
+        session = self._require(session_id)
+        return self.session_store.save(session)
+
+    def metrics(self) -> dict[str, Any]:
+        with self._lock:
+            active = sum(1 for s in self._sessions.values() if not s.state.ended)
+            total_cost = sum(s.state.total_cost_usd for s in self._sessions.values())
+            total_in = sum(s.state.total_input_tokens for s in self._sessions.values())
+            total_out = sum(s.state.total_output_tokens for s in self._sessions.values())
+            total_turns = sum(s.state.turn_count for s in self._sessions.values())
+        uptime = time.time() - self._metrics["started_ts"]
+        return {
+            **self._metrics,
+            "uptime_seconds": uptime,
+            "active_sessions": active,
+            "total_sessions": len(self._sessions),
+            "total_cost_usd": total_cost,
+            "total_input_tokens": total_in,
+            "total_output_tokens": total_out,
+            "total_turns": total_turns,
+        }
+
+    def _record_metric(self, event: Event) -> None:
+        if event.kind == SESSION_CREATED:
+            self._metrics["sessions_created"] += 1
+        elif event.kind == SESSION_ENDED:
+            self._metrics["sessions_ended"] += 1
+        elif event.kind == CHAT_COMPLETED:
+            self._metrics["chats_completed"] += 1
+        elif event.kind == ERROR:
+            self._metrics["errors"] += 1
+        elif event.kind == TOOL_SYNTHESIZED:
+            self._metrics["tool_synth_calls"] += 1
+        elif event.kind == "subagent.started":
+            self._metrics["subagent_spawns"] += 1
 
     def chat(self, session_id: str, user_input: str) -> str:
         session = self._require(session_id)

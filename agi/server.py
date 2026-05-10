@@ -35,6 +35,7 @@ from urllib.parse import parse_qs, urlparse
 from agi.events import Event
 from agi.runtime import Runtime, SessionConfig
 from agi.skills import Skill
+from agi.tasks import TaskQueue, TaskRunner, submit_task
 
 
 def _config_from_body(body: dict[str, Any]) -> SessionConfig:
@@ -70,8 +71,15 @@ def _send_empty(handler: BaseHTTPRequestHandler, status: int = 204) -> None:
     handler.end_headers()
 
 
-def make_handler(runtime: Runtime, *, auth_token: str | None = None):
+def make_handler(
+    runtime: Runtime,
+    *,
+    auth_token: str | None = None,
+    task_queue: TaskQueue | None = None,
+):
     """Build a BaseHTTPRequestHandler class bound to a Runtime instance."""
+    tq = task_queue
+    runner = TaskRunner(runtime, tq) if tq is not None else None
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):  # quiet by default
@@ -96,8 +104,28 @@ def make_handler(runtime: Runtime, *, auth_token: str | None = None):
                 return _send_json(self, 200, {"status": "ok"})
             if path == "/capabilities":
                 return _send_json(self, 200, runtime.capabilities())
+            if path == "/metrics":
+                return _send_json(self, 200, runtime.metrics())
             if path == "/sessions":
                 return _send_json(self, 200, runtime.sessions())
+            if path == "/tasks":
+                if tq is None:
+                    return _send_json(self, 404, {"error": "task queue not configured"})
+                status_filter = query.get("status", [None])[0]
+                tag_filter = query.get("tag", [None])[0]
+                return _send_json(
+                    self,
+                    200,
+                    [t.to_dict() for t in tq.list(status=status_filter, tag=tag_filter)],
+                )
+            if path.startswith("/tasks/"):
+                if tq is None:
+                    return _send_json(self, 404, {"error": "task queue not configured"})
+                tid = path[len("/tasks/"):]
+                try:
+                    return _send_json(self, 200, tq.get(tid).to_dict())
+                except KeyError:
+                    return _send_json(self, 404, {"error": f"unknown task: {tid}"})
             if path.startswith("/sessions/"):
                 sid = path[len("/sessions/"):]
                 try:
@@ -139,8 +167,44 @@ def make_handler(runtime: Runtime, *, auth_token: str | None = None):
 
             if path == "/sessions":
                 cfg = _config_from_body(body)
-                sid = runtime.create_session(cfg)
+                namespace = body.get("namespace")
+                sid = runtime.create_session(cfg, namespace=namespace)
                 return _send_json(self, 201, {"id": sid})
+            if path == "/sessions/restore":
+                if runtime.session_store is None:
+                    return _send_json(self, 400, {"error": "no session store configured"})
+                sid = body.get("session_id")
+                if not sid:
+                    return _send_json(self, 400, {"error": "missing 'session_id'"})
+                try:
+                    sid = runtime.restore_session(sid)
+                except (KeyError, ValueError) as e:
+                    return _send_json(self, 404, {"error": str(e)})
+                return _send_json(self, 200, {"id": sid})
+            if path == "/tasks":
+                if tq is None:
+                    return _send_json(self, 404, {"error": "task queue not configured"})
+                try:
+                    cfg = _config_from_body(body.get("session_config") or {})
+                    tid = submit_task(
+                        tq,
+                        prompt=body["prompt"],
+                        session_config=cfg,
+                        priority=int(body.get("priority", 0)),
+                        deadline_ts=body.get("deadline_ts"),
+                        max_attempts=int(body.get("max_attempts", 1)),
+                        namespace=body.get("namespace"),
+                        tag=body.get("tag"),
+                    )
+                except (KeyError, ValueError) as e:
+                    return _send_json(self, 400, {"error": str(e)})
+                return _send_json(self, 201, {"id": tid})
+            if path == "/tasks/drain":
+                if runner is None:
+                    return _send_json(self, 404, {"error": "task queue not configured"})
+                max_ticks = int(body.get("max_ticks", 100))
+                executed = runner.run_until_empty(max_ticks=max_ticks)
+                return _send_json(self, 200, {"executed": executed})
             if path == "/skills":
                 try:
                     skill = Skill(
@@ -187,6 +251,11 @@ def make_handler(runtime: Runtime, *, auth_token: str | None = None):
                     if action == "reset":
                         runtime.reset_session(sid)
                         return _send_empty(self)
+                    if action == "checkpoint":
+                        if runtime.session_store is None:
+                            return _send_json(self, 400, {"error": "no session store configured"})
+                        path_written = runtime.checkpoint_session(sid)
+                        return _send_json(self, 200, {"path": str(path_written)})
                 except KeyError:
                     return _send_json(self, 404, {"error": f"unknown session: {sid}"})
                 except Exception as e:
@@ -272,10 +341,12 @@ class RuntimeServer:
         host: str = "127.0.0.1",
         port: int = 0,
         auth_token: str | None = None,
+        task_queue: TaskQueue | None = None,
     ) -> None:
         self.runtime = runtime
         self.host = host
-        self._handler_cls = make_handler(runtime, auth_token=auth_token)
+        self.task_queue = task_queue
+        self._handler_cls = make_handler(runtime, auth_token=auth_token, task_queue=task_queue)
         self._server = ThreadingHTTPServer((host, port), self._handler_cls)
         self.port = self._server.server_address[1]
         self._thread: threading.Thread | None = None

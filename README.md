@@ -17,7 +17,9 @@ agi/                # runtime + agent
   agent.py          # streaming agent loop — adaptive thinking + tool dispatch
   skills.py         # markdown skill library with retrieval (procedural memory)
   toolsynth.py      # sandboxed Python tool synthesis (subprocess isolated)
-  memory.py         # persistent JSONL memory store with keyword search
+  tasks.py          # Task / TaskQueue / TaskRunner — scheduled work
+  persistence.py    # checkpoint sessions to disk and rehydrate
+  memory.py         # persistent JSONL memory store + namespacing (multi-tenant)
   costs.py          # per-turn + cumulative token usage and $ tracking
   tools.py          # builtin tools: file, shell, web, memory
   __main__.py       # CLI: python -m agi
@@ -100,19 +102,29 @@ rt.save_skill(Skill(
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
 coordinators:
 
-| Method | Path                          | Purpose                                 |
-|--------|-------------------------------|-----------------------------------------|
-| GET    | `/capabilities`               | What the runtime offers right now       |
-| GET    | `/sessions`                   | List sessions                           |
-| POST   | `/sessions`                   | Create a session (body = SessionConfig) |
-| POST   | `/sessions/{id}/chat`         | One turn; returns `{final_text, session}` |
-| POST   | `/sessions/{id}/cancel`       | Cancel between turns                    |
-| DELETE | `/sessions/{id}`              | End                                     |
-| GET    | `/events`                     | SSE stream of all events                |
-| GET    | `/events?session_id=…&kind=…` | Filtered SSE                            |
-| GET    | `/events/history`             | Replay past events                      |
-| POST   | `/skills`                     | Save a skill                            |
-| POST   | `/tools`                      | Synthesize a sandboxed tool             |
+| Method | Path                              | Purpose                                       |
+|--------|-----------------------------------|-----------------------------------------------|
+| GET    | `/healthz`                        | Liveness check                                |
+| GET    | `/capabilities`                   | What the runtime offers right now             |
+| GET    | `/metrics`                        | Counters + totals for SLO/observability       |
+| GET    | `/sessions`                       | List sessions                                 |
+| POST   | `/sessions`                       | Create a session (body = SessionConfig + `namespace`) |
+| GET    | `/sessions/{id}`                  | Inspect state                                 |
+| POST   | `/sessions/{id}/chat`             | One turn; returns `{final_text, session}`     |
+| POST   | `/sessions/{id}/cancel`           | Cancel between turns                          |
+| POST   | `/sessions/{id}/reset`            | Clear conversation, keep session              |
+| POST   | `/sessions/{id}/checkpoint`       | Persist session to the session store          |
+| POST   | `/sessions/restore`               | `{session_id}` → reload from store            |
+| DELETE | `/sessions/{id}`                  | End                                           |
+| GET    | `/events`                         | SSE stream of all events                      |
+| GET    | `/events?session_id=…&kind=…`     | Filtered SSE                                  |
+| GET    | `/events/history`                 | Replay past events                            |
+| GET    | `/tasks`                          | List queued/running/done tasks                |
+| POST   | `/tasks`                          | Submit a task (prompt + budget + deadline)    |
+| GET    | `/tasks/{id}`                     | Inspect a task                                |
+| POST   | `/tasks/drain`                    | Run queued tasks (synchronous; `max_ticks`)   |
+| POST   | `/skills`                         | Save a skill                                  |
+| POST   | `/tools`                          | Synthesize a sandboxed tool                   |
 
 Optional bearer-token auth via `AGI_AUTH_TOKEN` env var or `--auth-token`.
 
@@ -158,7 +170,8 @@ research vs. tractable engineering.
 
 ```sh
 python -m unittest discover tests
-# 99 tests across events, skills, toolsynth, runtime, server, agent, learner
+# 119 tests across events, skills, toolsynth, runtime, server, persistence,
+# tasks, agent, learner
 ```
 
 All tests run without an API key; they exercise the runtime, sandbox, and
