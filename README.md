@@ -1,6 +1,6 @@
 # agi
 
-An agent scaffold. Not AGI — that remains an unsolved scientific problem. This
+An agent harness. Not AGI — that remains an unsolved scientific problem. This
 is what you can credibly build today: a capable agent on top of Claude Opus 4.7
 with tools to act on the world, persistent memory across sessions, and an eval
 harness to measure capability.

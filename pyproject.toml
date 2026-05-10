@@ -1,7 +1,7 @@
 [project]
 name = "agi"
 version = "0.1.0"
-description = "An agent scaffold built on Claude Opus 4.7."
+description = "An agent harness built on Claude Opus 4.7."
 requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.50.0",
