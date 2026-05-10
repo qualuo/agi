@@ -9,9 +9,10 @@ harness to measure capability.
 
 ```
 agi/
-  agent.py      # core agent — adaptive thinking + tool runner loop
+  agent.py      # streaming agent loop — adaptive thinking + tool dispatch
+  costs.py      # per-turn + cumulative token usage and $ tracking
   memory.py     # persistent JSONL memory store with keyword search
-  tools.py      # filesystem, shell, web search, memory tools
+  tools.py      # filesystem, shell, web search/fetch, memory tools
   __main__.py   # CLI: python -m agi
 evals/
   tasks.jsonl   # eval tasks (math, file ops, recall, search)
@@ -38,9 +39,11 @@ python evals/run.py                   # run the eval suite
 ## What it can do
 
 - Read/write files, run shell commands
-- Search the live web (server-side `web_search_20260209`)
+- Search the live web (server-side `web_search_20260209`) and fetch URLs (`web_fetch_20260209`)
 - Remember things across sessions (`~/.agi/memory.jsonl`) and recall by keyword
 - Plan with adaptive thinking on hard tasks (`effort: high`)
+- Stream output as Claude generates it; show summarized thinking
+- Track per-turn and cumulative token usage with $ cost
 
 ## What it can't do
 

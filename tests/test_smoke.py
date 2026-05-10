@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from agi.costs import Usage, PRICING
 from agi.memory import Memory
 from agi.tools import make_tools
 
@@ -89,6 +90,64 @@ class TestTools(unittest.TestCase):
         self.handlers["save_memory"](text="i like pizza", tags=["food"])
         result = self.handlers["search_memory"](query="pizza")
         self.assertIn("pizza", result)
+
+
+class FakeResponseUsage:
+    """Mimics anthropic.types.Usage for the Usage.add() interface."""
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+class TestUsage(unittest.TestCase):
+    def test_add_accumulates(self):
+        u = Usage()
+        u.add(FakeResponseUsage(input_tokens=100, output_tokens=200, cache_creation_input_tokens=0, cache_read_input_tokens=0))
+        u.add(FakeResponseUsage(input_tokens=50, output_tokens=80, cache_creation_input_tokens=10, cache_read_input_tokens=20))
+        self.assertEqual(u.input_tokens, 150)
+        self.assertEqual(u.output_tokens, 280)
+        self.assertEqual(u.cache_creation_input_tokens, 10)
+        self.assertEqual(u.cache_read_input_tokens, 20)
+        self.assertEqual(u.turns, 2)
+
+    def test_add_handles_missing_attrs(self):
+        u = Usage()
+        u.add(FakeResponseUsage(input_tokens=10))  # no output_tokens etc.
+        self.assertEqual(u.input_tokens, 10)
+        self.assertEqual(u.output_tokens, 0)
+
+    def test_add_handles_none_values(self):
+        # The SDK can return None for cache fields when not used
+        u = Usage()
+        u.add(FakeResponseUsage(input_tokens=10, output_tokens=20, cache_creation_input_tokens=None, cache_read_input_tokens=None))
+        self.assertEqual(u.cache_creation_input_tokens, 0)
+        self.assertEqual(u.cache_read_input_tokens, 0)
+
+    def test_cost_opus_4_7(self):
+        # 1M input + 1M output on opus-4-7 = $5 + $25 = $30
+        u = Usage(input_tokens=1_000_000, output_tokens=1_000_000)
+        self.assertAlmostEqual(u.cost_usd("claude-opus-4-7"), 30.0)
+
+    def test_cost_cache_read_is_cheap(self):
+        # 1M cache reads on opus-4-7 = $5 * 0.1 = $0.50
+        u = Usage(cache_read_input_tokens=1_000_000)
+        self.assertAlmostEqual(u.cost_usd("claude-opus-4-7"), 0.50)
+
+    def test_cost_cache_write_premium(self):
+        # 1M cache writes on opus-4-7 = $5 * 1.25 = $6.25
+        u = Usage(cache_creation_input_tokens=1_000_000)
+        self.assertAlmostEqual(u.cost_usd("claude-opus-4-7"), 6.25)
+
+    def test_cost_unknown_model_returns_zero(self):
+        u = Usage(input_tokens=1000)
+        self.assertEqual(u.cost_usd("unknown-model"), 0.0)
+
+    def test_format_includes_dollar_amount(self):
+        u = Usage(input_tokens=1000, output_tokens=500)
+        out = u.format("claude-opus-4-7")
+        self.assertIn("1,000 in", out)
+        self.assertIn("500 out", out)
+        self.assertIn("$", out)
 
 
 if __name__ == "__main__":
