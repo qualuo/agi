@@ -64,7 +64,21 @@ class FakeAgent:
         self.usage.turns += 1
         self.messages.append({"role": "assistant", "content": self._reply})
         if self.bus is not None:
-            self.bus.emit(TURN_COMPLETED, {"text": self._reply, "cost_usd": self.usage.cost_usd(self.model)})
+            # Emit per-turn deltas, mirroring the real Agent's TURN_COMPLETED.
+            from agi.costs import Usage as _U
+
+            turn_u = _U(input_tokens=self._in, output_tokens=self._out)
+            self.bus.emit(
+                TURN_COMPLETED,
+                {
+                    "text": self._reply,
+                    "cost_usd": turn_u.cost_usd(self.model),
+                    "input_tokens": self._in,
+                    "output_tokens": self._out,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                },
+            )
         return self._reply
 
     def snapshot(self) -> dict:

@@ -79,6 +79,10 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             return self._handle_root()
         if parts == ["capabilities"]:
             return _send_json(self, 200, self.runtime.capabilities().to_dict())
+        if parts == ["metrics"]:
+            return _send_json(self, 200, self.runtime.metrics.to_dict())
+        if parts == ["health"]:
+            return _send_json(self, 200, {"ok": True})
         if parts == ["sessions"]:
             return _send_json(self, 200, [s.to_dict() for s in self.runtime.list_sessions()])
         if len(parts) == 2 and parts[0] == "sessions":

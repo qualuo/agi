@@ -40,6 +40,7 @@ from agi.events import (
     new_session_id,
 )
 from agi.memory import Memory
+from agi.metrics import RuntimeMetrics
 
 
 @dataclass
@@ -311,6 +312,7 @@ class Runtime:
         self._skill_library = skill_library
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
+        self.metrics = RuntimeMetrics()
 
     def capabilities(self) -> Capabilities:
         # Probe a short-lived agent for tool list (no API calls; tools are local).
@@ -348,6 +350,11 @@ class Runtime:
                 kwargs["extra_system"] = extra
 
         agent = self._agent_factory(**kwargs)
+        # Wire metrics to the bus before Session constructs (so the
+        # SESSION_CREATED event it emits is observed).
+        bus = EventBus()
+        self.metrics.attach(bus, role=role)
+        agent.bus = bus
         session = Session(agent, budget=budget, id=id, role=role)
         with self._lock:
             self._sessions[session.id] = session
@@ -366,11 +373,15 @@ class Runtime:
             kwargs.update(agent_kwargs)
         agent = self._agent_factory(**kwargs)
         agent.restore(snapshot["agent"])
+        role = snapshot.get("role")
+        bus = EventBus()
+        self.metrics.attach(bus, role=role)
+        agent.bus = bus
         session = Session(
             agent,
             budget=Budget.from_dict(snapshot.get("budget")),
             id=snapshot["id"],
-            role=snapshot.get("role"),
+            role=role,
         )
         session.created_at = snapshot.get("created_at", session.created_at)
         with self._lock:

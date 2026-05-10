@@ -146,6 +146,25 @@ class TestRuntimeServer(unittest.TestCase):
         self.assertEqual(restored["id"], sid)
         self.assertEqual(restored["turns"], 1)
 
+    def test_metrics_endpoint(self):
+        # create + step so there's something to count
+        _, body = _request("POST", self.url("/sessions"), {"role": "researcher"})
+        sid = body["id"]
+        _request("POST", self.url(f"/sessions/{sid}/step"), {"input": "hi"})
+        status, m = _request("GET", self.url("/metrics"))
+        self.assertEqual(status, 200)
+        self.assertIn("sessions", m)
+        self.assertIn("turns", m)
+        self.assertIn("cost", m)
+        self.assertGreaterEqual(m["sessions"]["created"], 1)
+        self.assertGreaterEqual(m["turns"]["completed"], 1)
+        self.assertIn("researcher", m["by_role"])
+
+    def test_health_endpoint(self):
+        status, body = _request("GET", self.url("/health"))
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+
     def test_sse_replay_returns_buffered_events(self):
         # Create a session, take a step, then connect to events with since=0
         # and read a few events. The test reads only headers + a chunk and

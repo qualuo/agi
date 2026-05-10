@@ -82,12 +82,30 @@ curl -s :8765/sessions/$ID/snapshot -X POST                     # park
 
 Endpoints, in order of importance to a coordinator:
 - `GET  /capabilities` — tools, models, skills, snapshots, streaming
+- `GET  /metrics` — aggregate cost / turns / errors / tool counts / per-role breakdown
+- `GET  /health` — liveness probe
 - `POST /sessions` — create (with `budget`, `role`, `agent` overrides)
 - `POST /sessions/{id}/step` — drive one turn
 - `GET  /sessions/{id}/events` — Server-Sent Events; `?since=<seq>` replays
 - `POST /sessions/{id}/snapshot` — opaque resumable state
 - `POST /sessions/restore` — reattach a parked session
 - `DELETE /sessions/{id}` — close
+
+### Reference coordinator
+
+`examples/coordinator.py` is a 150-line reference implementation of how a
+coordination engine consumes the runtime: it fans a single user prompt out
+to role-specialized parallel sessions, observes their lifecycle events
+live, and produces a rolled-up summary including aggregate cost and the
+runtime's `/metrics` snapshot.
+
+```sh
+python examples/coordinator.py "summarize the README"
+```
+
+This is a demonstration of the contract surface, not the production
+coordinator. Real coordinators would persist events, retry, route across
+many runtimes, and so on.
 
 ## What it can do
 
@@ -113,6 +131,9 @@ Endpoints, in order of importance to a coordinator:
   save/search/recent memory, list/read/save/search skills, delegate, reflect.
 - **Cost & token accounting**: per-turn deltas + cumulative; pricing table
   for Opus 4.7 / Sonnet 4.6 / Haiku 4.5 with cache write/read multipliers.
+- **Runtime telemetry** (`agi.metrics`): aggregate sessions, turns,
+  cost, tool invocations, tool errors, budget violations, critic averages,
+  per-role breakdown — all queryable in-process or via `GET /metrics`.
 
 ## What it can't do (yet)
 
