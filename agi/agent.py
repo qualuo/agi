@@ -7,6 +7,13 @@ and cumulative usage persist for the lifetime of the Agent instance.
 Server-side `web_search_20260209` and `web_fetch_20260209` are mixed in
 alongside the client-side tools. Anthropic executes them server-side and
 returns results inline; our `_dispatch_tool_calls` skips them.
+
+Runtime hooks (all optional, default off):
+  - skills:        SkillLibrary; top-K injected per turn into the system prompt
+  - budget:        Budget; checked before each model call, raises BudgetExceeded
+  - event_bus:     EventBus; emits turn/tool/text/skill/critic events
+  - system_extra:  string appended to SYSTEM_PROMPT for role specialization
+  - session_id:    propagated on every emitted event for routing
 """
 from __future__ import annotations
 
@@ -15,8 +22,11 @@ from typing import Callable
 
 import anthropic
 
+from agi.budget import Budget, BudgetExceeded
 from agi.costs import Usage
+from agi.events import EventBus
 from agi.memory import Memory
+from agi.skills import SkillLibrary
 from agi.tools import make_tools
 
 try:
@@ -61,21 +71,33 @@ class Agent:
         tracer=None,
         critic=None,
         critic_threshold: float = 0.5,
+        skills: SkillLibrary | None = None,
+        budget: Budget | None = None,
+        event_bus: EventBus | None = None,
+        system_extra: str = "",
+        session_id: str | None = None,
+        client=None,
     ) -> None:
-        self.client = anthropic.Anthropic()
+        self.client = client or anthropic.Anthropic()
         self.memory = memory or Memory()
         self.model = model
         self.max_tokens = max_tokens
         self.effort = effort
         self.verbose = verbose
-        self.tracer = tracer  # optional TraceLogger for the learning loop
-        self.critic = critic  # optional learner.Critic; gates final output
+        self.tracer = tracer
+        self.critic = critic
         self.critic_threshold = critic_threshold
+        self.skills = skills
+        self.budget = budget
+        self.bus = event_bus
+        self.system_extra = system_extra
+        self.session_id = session_id
+
         self.last_critic_score: float | None = None
         self.messages: list[dict] = []
         self.usage = Usage()
 
-        schemas, handlers = make_tools(self.memory)
+        schemas, handlers = make_tools(self.memory, skills=skills)
         self.tool_schemas: list[dict] = list(schemas)
         self.handlers: dict[str, Callable[..., str]] = handlers
 
@@ -91,50 +113,121 @@ class Agent:
     def reset(self) -> None:
         self.messages = []
         self.usage = Usage()
+        self.last_critic_score = None
+
+    # ---- internal helpers ----
+
+    def _emit(self, type_: str, **fields) -> None:
+        if self.bus is None:
+            return
+        if self.session_id is not None and "session_id" not in fields:
+            fields["session_id"] = self.session_id
+        self.bus.emit(type_, **fields)
+
+    def _build_system(self, user_input: str) -> list[dict]:
+        """Compose the system prompt: base + role extra + relevant skills.
+
+        Only the static base block is cache-marked. The dynamic skill block
+        changes per task and would just thrash the cache if marked.
+        """
+        blocks: list[dict] = [
+            {
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+        if self.system_extra:
+            blocks.append({"type": "text", "text": self.system_extra})
+        if self.skills is not None:
+            skills_section = self.skills.render_for_prompt(user_input, k=3)
+            if skills_section:
+                blocks.append({"type": "text", "text": skills_section})
+                # tell the bus which skills were loaded
+                for s in self.skills.search(user_input, k=3):
+                    self._emit("skill_loaded", name=s.name, description=s.description)
+        return blocks
+
+    # ---- public API ----
 
     def chat(self, user_input: str, max_iterations: int = 25) -> str:
         self.messages.append({"role": "user", "content": user_input})
         last_text = ""
         turn_usage = Usage()
+        system = self._build_system(user_input)
 
-        for _ in range(max_iterations):
-            response = self._stream_one()
+        self._emit(
+            "turn_started",
+            input_preview=user_input[:200],
+            iteration_cap=max_iterations,
+        )
 
-            self.messages.append({"role": "assistant", "content": response.content})
-            self.usage.add(response.usage)
-            turn_usage.add(response.usage)
+        try:
+            for _ in range(max_iterations):
+                # Budget check BEFORE each model call so we never blow past the cap.
+                if self.budget is not None:
+                    self.budget.check(self.usage)
 
-            for block in response.content:
-                if block.type == "text" and block.text:
-                    last_text = block.text
+                response = self._stream_one(system)
 
-            if response.stop_reason == "end_turn":
+                self.messages.append({"role": "assistant", "content": response.content})
+                self.usage.add(response.usage)
+                turn_usage.add(response.usage)
+
+                for block in response.content:
+                    if block.type == "text" and block.text:
+                        last_text = block.text
+                        self._emit("text", text=block.text)
+                    elif block.type == "tool_use":
+                        self._emit(
+                            "tool_call",
+                            name=block.name,
+                            input=block.input,
+                            tool_use_id=block.id,
+                        )
+
+                if response.stop_reason == "end_turn":
+                    break
+
+                if response.stop_reason == "pause_turn":
+                    continue
+
+                if response.stop_reason == "tool_use":
+                    tool_results = self._dispatch_tool_calls(response.content)
+                    if not tool_results:
+                        break
+                    self.messages.append({"role": "user", "content": tool_results})
+                    continue
+
+                # refusal, max_tokens, stop_sequence, model_context_window_exceeded, ...
                 break
 
-            if response.stop_reason == "pause_turn":
-                # Server-side tool hit its iteration limit; re-send to continue.
-                continue
-
-            if response.stop_reason == "tool_use":
-                tool_results = self._dispatch_tool_calls(response.content)
-                if not tool_results:
-                    break
-                self.messages.append({"role": "user", "content": tool_results})
-                continue
-
-            # refusal, max_tokens, stop_sequence, model_context_window_exceeded, ...
-            break
+        except BudgetExceeded as exc:
+            self._emit("budget_warning", reason=exc.reason)
+            raise
 
         last_text, critic_score = self._apply_critic_gate(user_input, last_text)
         self.last_critic_score = critic_score
+        if critic_score is not None:
+            self._emit("critic_score", score=critic_score)
 
         if self.verbose:
             print(f"\n[{turn_usage.format(self.model)}]", flush=True)
+
+        self._emit(
+            "turn_finished",
+            text_preview=last_text[:200],
+            cost_usd=turn_usage.cost_usd(self.model),
+            input_tokens=turn_usage.input_tokens,
+            output_tokens=turn_usage.output_tokens,
+        )
 
         if self.tracer is not None:
             metadata: dict = {}
             if critic_score is not None:
                 metadata["critic_score"] = critic_score
+            if self.session_id is not None:
+                metadata["session_id"] = self.session_id
             self.tracer.log(
                 model=self.model,
                 messages=self.messages,
@@ -155,9 +248,6 @@ class Agent:
 
         Returns (possibly-annotated response, score). If no critic is set,
         returns (response, None) — opt-in feature, default off.
-
-        v1: annotate only. Future options: regenerate with hint, refuse,
-        surface a structured uncertainty signal to the caller.
         """
         if self.critic is None:
             return response, None
@@ -169,17 +259,11 @@ class Agent:
             return response + warning, score
         return response, score
 
-    def _stream_one(self):
+    def _stream_one(self, system: list[dict]):
         with self.client.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
+            system=system,
             tools=self.tool_schemas,
             thinking={"type": "adaptive", "display": "summarized"},
             output_config={"effort": self.effort},
@@ -202,12 +286,14 @@ class Agent:
                 print(f"\n[tool: {block.name}]", end="", flush=True)
             elif block.type == "server_tool_use":
                 print(f"\n[server: {block.name}]", end="", flush=True)
+                self._emit("server_tool", name=block.name)
             elif block.type == "text":
                 print()
         elif event.type == "content_block_delta":
             d = event.delta
             if d.type == "thinking_delta":
                 print(d.thinking, end="", flush=True)
+                self._emit("thinking", delta=d.thinking)
             elif d.type == "text_delta":
                 print(d.text, end="", flush=True)
             # input_json_delta is too noisy to show during streaming
@@ -235,5 +321,12 @@ class Agent:
                     "content": _stringify_tool_result(result),
                     "is_error": is_error,
                 }
+            )
+            self._emit(
+                "tool_result",
+                tool_use_id=block.id,
+                name=block.name,
+                is_error=is_error,
+                preview=_stringify_tool_result(result)[:300],
             )
         return tool_results

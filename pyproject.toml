@@ -1,7 +1,7 @@
 [project]
 name = "agi"
-version = "0.1.0"
-description = "An agent harness built on Claude Opus 4.7."
+version = "0.2.0"
+description = "An agent runtime built on Claude Opus 4.7 — sessions, skills, budgets, events, HTTP control plane."
 requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.50.0",
@@ -28,4 +28,4 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["agi*", "learner*"]
+include = ["agi*", "learner*", "coordinator*"]
