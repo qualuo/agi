@@ -88,6 +88,14 @@ class TestCriticGate(unittest.TestCase):
         self.assertEqual(out_relaxed, "r")
 
 
+try:
+    import torch  # noqa: F401
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
+
+
+@unittest.skipUnless(_HAS_TORCH, "torch not installed (optional [learner] extra)")
 class TestRealCriticIntegration(unittest.TestCase):
     """End-to-end: train a real Critic on a tiny dataset, plug into the
     gate, verify it discriminates obvious good vs bad."""

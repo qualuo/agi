@@ -3,6 +3,18 @@
 A system that learns and adapts to new input. Honest about what's open research
 vs. what's tractable engineering.
 
+The system is now structured as two cooperating layers:
+
+- **Agent** (`agi/`): one LLM loop, one set of tools, one task at a time.
+- **Runtime engine** (`runtime/`): wraps the agent in a structured *task* with
+  lifecycle, budgets, structured events, cancellation, and **delegation**;
+  runs many tasks concurrently; exposes a Python API and an HTTP wire protocol.
+
+A *coordination engine* — the external system that decides what to run, in
+what order, with what context — drives the runtime over either surface. The
+runtime owns *how* a task executes; the coordinator owns *what* gets executed
+and how results compose.
+
 ## The core insight: learning operates at multiple timescales
 
 A frozen LLM is the wrong primitive to ask "does this system learn?" of, because
@@ -255,6 +267,25 @@ real traces.
 - [ ] Train critic on real traces once a meaningful pool accumulates
 - [ ] Critic-as-reward for the LoRA loop in stage 2
 
+### Stage 1.75 — Runtime engine (shipped)
+
+The agent harness was a single in-process call. The runtime engine wraps it
+as a callable service so a coordination engine can drive many tasks at once.
+
+- [x] `runtime/task.py` — Task with lifecycle (queued/running/completed/failed/
+      cancelled), Budget (cost/tokens/turns/deadline), structured events
+- [x] `runtime/engine.py` — concurrent orchestrator with cancellation
+- [x] `runtime/backend.py` — `Backend` interface + `MockBackend` for offline
+      tests + `AnthropicBackend` for production
+- [x] `delegate` tool — agents spawn child tasks through the engine, building
+      a tree the coordinator can walk
+- [x] `runtime/server.py` — stdlib HTTP server (no FastAPI dep) with SSE
+- [x] `runtime/client.py` — Python client for the HTTP API
+- [x] `examples/coordinator.py` — example coordination engine
+
+This is *not* the same as solving any of the open research problems below;
+it's the runtime substrate everything else plugs into.
+
 ### Stage 2 — Eval-gated adapter deployment
 
 - [ ] Eval runner accepts `--agent local|opus` so we can compare
@@ -264,10 +295,14 @@ real traces.
 
 ### Stage 3 — Skill library
 
-- [ ] `learner/skills.py` — directory of markdown skills, retrieve by description
-- [ ] Skill compilation: an LLM pass that proposes new skills from recent
-      successful traces, with human review before commit
-- [ ] Integrate into Agent: load top-K relevant skills into system prompt
+- [x] `learner/skills.py` — directory of markdown skills, retrieve by keyword
+- [x] Integrate into Agent: top-K relevant skills auto-loaded into system prompt
+      by the runtime engine (`Engine(skill_library=...)`)
+- [x] `SkillLibrary.propose_from_trace()` — drafts a skill from a trace for
+      human review (does NOT auto-write — noisy skill libraries are how this
+      goes wrong)
+- [ ] Skill compilation loop: an LLM pass that scans recent successful traces,
+      clusters, and proposes new skills automatically
 
 ### Stage 4 — Semantic memory
 

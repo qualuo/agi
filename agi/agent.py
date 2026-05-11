@@ -7,13 +7,22 @@ and cumulative usage persist for the lifetime of the Agent instance.
 Server-side `web_search_20260209` and `web_fetch_20260209` are mixed in
 alongside the client-side tools. Anthropic executes them server-side and
 returns results inline; our `_dispatch_tool_calls` skips them.
+
+The agent can run standalone (build it, call `chat`) or as the executor
+inside a runtime Task. The runtime hooks in via these optional params:
+
+  backend       — LLM transport. If None, builds anthropic.Anthropic() directly.
+  event_sink    — callable that receives structured events for the engine to surface.
+  cancel_check  — called between turns and at tool boundaries; raise to abort.
+  budget_check  — called between turns with usage so far; raise to abort.
+  extra_tools   — list of (schema, handler) pairs injected at construction.
+  system_suffix — appended to SYSTEM_PROMPT (skill library uses this).
 """
 from __future__ import annotations
 
 import json
-from typing import Callable
-
-import anthropic
+import time
+from typing import Any, Callable, Optional
 
 from agi.costs import Usage
 from agi.memory import Memory
@@ -61,8 +70,21 @@ class Agent:
         tracer=None,
         critic=None,
         critic_threshold: float = 0.5,
+        backend=None,
+        event_sink: Optional[Callable[[str, dict], Any]] = None,
+        cancel_check: Optional[Callable[[], None]] = None,
+        budget_check: Optional[Callable[..., None]] = None,
+        extra_tools: Optional[list[tuple[dict, Callable[..., str]]]] = None,
+        system_suffix: str = "",
     ) -> None:
-        self.client = anthropic.Anthropic()
+        # Backend abstraction: defaults to AnthropicBackend so standalone use
+        # (python -m agi) keeps working with no extra wiring.
+        if backend is None:
+            from runtime.backend import AnthropicBackend
+            backend = AnthropicBackend()
+        self.backend = backend
+        # Keep `self.client` for backwards-compatible attribute access.
+        self.client = getattr(backend, "client", None)
         self.memory = memory or Memory()
         self.model = model
         self.max_tokens = max_tokens
@@ -75,9 +97,20 @@ class Agent:
         self.messages: list[dict] = []
         self.usage = Usage()
 
+        self._event_sink = event_sink
+        self._cancel_check = cancel_check
+        self._budget_check = budget_check
+        self._system_suffix = system_suffix
+        self._start_time = time.time()
+
         schemas, handlers = make_tools(self.memory)
         self.tool_schemas: list[dict] = list(schemas)
-        self.handlers: dict[str, Callable[..., str]] = handlers
+        self.handlers: dict[str, Callable[..., str]] = dict(handlers)
+
+        if extra_tools:
+            for schema, handler in extra_tools:
+                self.tool_schemas.append(schema)
+                self.handlers[schema["name"]] = handler
 
         if enable_web_search:
             self.tool_schemas.append(
@@ -88,9 +121,12 @@ class Agent:
                 {"type": "web_fetch_20260209", "name": "web_fetch"}
             )
 
+    # ----- public API ------------------------------------------------------
+
     def reset(self) -> None:
         self.messages = []
         self.usage = Usage()
+        self._start_time = time.time()
 
     def chat(self, user_input: str, max_iterations: int = 25) -> str:
         self.messages.append({"role": "user", "content": user_input})
@@ -98,14 +134,27 @@ class Agent:
         turn_usage = Usage()
 
         for _ in range(max_iterations):
+            self._check_cancel()
+            self._check_budget()
+
             response = self._stream_one()
 
             self.messages.append({"role": "assistant", "content": response.content})
             self.usage.add(response.usage)
             turn_usage.add(response.usage)
 
+            self._emit_turn_events(response)
+            self._emit(
+                "turn_complete",
+                {
+                    "input_tokens": getattr(response.usage, "input_tokens", 0),
+                    "output_tokens": getattr(response.usage, "output_tokens", 0),
+                    "stop_reason": response.stop_reason,
+                },
+            )
+
             for block in response.content:
-                if block.type == "text" and block.text:
+                if getattr(block, "type", None) == "text" and getattr(block, "text", None):
                     last_text = block.text
 
             if response.stop_reason == "end_turn":
@@ -150,6 +199,48 @@ class Agent:
 
         return last_text
 
+    # ----- internals -------------------------------------------------------
+
+    def _check_cancel(self) -> None:
+        if self._cancel_check is not None:
+            self._cancel_check()
+
+    def _check_budget(self) -> None:
+        if self._budget_check is None:
+            return
+        self._budget_check(
+            cost_usd=self.usage.cost_usd(self.model),
+            input_tokens=self.usage.input_tokens,
+            output_tokens=self.usage.output_tokens,
+            turns=self.usage.turns,
+            elapsed_seconds=time.time() - self._start_time,
+        )
+
+    def _emit(self, kind: str, data: dict) -> None:
+        if self._event_sink is not None:
+            try:
+                self._event_sink(kind, data)
+            except Exception:
+                # Never let a misbehaving sink break the agent loop.
+                pass
+
+    def _emit_turn_events(self, response) -> None:
+        if self._event_sink is None:
+            return
+        for block in response.content:
+            t = getattr(block, "type", None)
+            if t == "text" and getattr(block, "text", None):
+                self._emit("text", {"text": block.text})
+            elif t == "tool_use":
+                self._emit(
+                    "tool_call",
+                    {"name": block.name, "input": dict(block.input or {})},
+                )
+            elif t == "thinking":
+                summary = getattr(block, "summary", None) or getattr(block, "thinking", None)
+                if summary:
+                    self._emit("thinking_summary", {"text": summary})
+
     def _apply_critic_gate(self, prompt: str, response: str) -> tuple[str, float | None]:
         """Score the response with the critic; annotate if below threshold.
 
@@ -170,13 +261,14 @@ class Agent:
         return response, score
 
     def _stream_one(self):
-        with self.client.messages.stream(
+        system_text = SYSTEM_PROMPT + self._system_suffix
+        with self.backend.stream_message(
             model=self.model,
             max_tokens=self.max_tokens,
             system=[
                 {
                     "type": "text",
-                    "text": SYSTEM_PROMPT,
+                    "text": system_text,
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
@@ -215,8 +307,9 @@ class Agent:
     def _dispatch_tool_calls(self, content) -> list[dict]:
         tool_results: list[dict] = []
         for block in content:
-            if block.type != "tool_use":
+            if getattr(block, "type", None) != "tool_use":
                 continue
+            self._check_cancel()
             handler = self.handlers.get(block.name)
             if handler is None:
                 # web_search / web_fetch and other server-side tools land here;
@@ -228,6 +321,10 @@ class Agent:
             except Exception as e:  # tool failures are reported back to the model
                 result = f"error: {type(e).__name__}: {e}"
                 is_error = True
+            self._emit(
+                "tool_result",
+                {"name": block.name, "output": _stringify_tool_result(result), "is_error": is_error},
+            )
             tool_results.append(
                 {
                     "type": "tool_result",

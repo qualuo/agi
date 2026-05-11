@@ -14,7 +14,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import torch
+try:
+    import torch
+except ImportError:
+    raise unittest.SkipTest("torch not installed (optional [learner] extra)")
 
 from learner.critic import CharHashFeaturizer, Critic, CriticConfig
 from learner.synth import addition_examples
