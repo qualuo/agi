@@ -75,24 +75,145 @@ class Agent:
         self.messages: list[dict] = []
         self.usage = Usage()
 
+        # Runtime-injected attachments. Set by Runtime via attach_*().
+        self.extra_system: str | None = None
+        self._tool_synth = None  # ToolSynthRegistry
+        self._tool_synth_bus = None
+        self._tool_synth_session_id = None
+        self._delegate_fn = None  # Callable[[task, role, model?], str]
+        self._delegate_bus = None
+        self._delegate_session_id = None
+
         schemas, handlers = make_tools(self.memory)
-        self.tool_schemas: list[dict] = list(schemas)
-        self.handlers: dict[str, Callable[..., str]] = handlers
+        self._builtin_tool_schemas: list[dict] = list(schemas)
+        self._builtin_handlers: dict[str, Callable[..., str]] = dict(handlers)
 
         if enable_web_search:
-            self.tool_schemas.append(
+            self._builtin_tool_schemas.append(
                 {"type": "web_search_20260209", "name": "web_search"}
             )
         if enable_web_fetch:
-            self.tool_schemas.append(
+            self._builtin_tool_schemas.append(
                 {"type": "web_fetch_20260209", "name": "web_fetch"}
             )
+
+        # tool_schemas/handlers are recomputed each turn so attached
+        # synthesizers and delegation can add tools on the fly.
+        self.tool_schemas: list[dict] = list(self._builtin_tool_schemas)
+        self.handlers: dict[str, Callable[..., str]] = dict(self._builtin_handlers)
+
+    def attach_tool_synth(self, registry, bus=None, session_id: str | None = None) -> None:
+        """Wire a ToolSynthRegistry so the agent can `make_tool` at runtime."""
+        self._tool_synth = registry
+        self._tool_synth_bus = bus
+        self._tool_synth_session_id = session_id
+
+    def attach_delegation(self, delegate_fn: Callable[..., str], bus=None, session_id: str | None = None) -> None:
+        """Wire a delegation function so the agent can spawn subagents."""
+        self._delegate_fn = delegate_fn
+        self._delegate_bus = bus
+        self._delegate_session_id = session_id
+
+    def _refresh_tools(self) -> None:
+        """Rebuild tool_schemas and handlers from builtins + attachments.
+
+        Called between turns so newly synthesized or just-attached tools
+        become visible on the next API request without rebuilding the Agent.
+        """
+        schemas: list[dict] = list(self._builtin_tool_schemas)
+        handlers: dict[str, Callable[..., str]] = dict(self._builtin_handlers)
+
+        if self._tool_synth is not None:
+            from agi.toolsynth import ToolSynthError  # local to avoid cycles
+            # the make_tool meta-tool itself
+            def _make_tool(name: str, description: str, code: str,
+                           input_schema: dict | None = None,
+                           smoke_test_kwargs: dict | None = None) -> str:
+                try:
+                    tool = self._tool_synth.register(
+                        name=name,
+                        description=description,
+                        code=code,
+                        input_schema=input_schema,
+                        smoke_test_kwargs=smoke_test_kwargs,
+                    )
+                except ToolSynthError as e:
+                    return f"error: {e}"
+                if self._tool_synth_bus is not None:
+                    from agi.events import Event, TOOL_SYNTHESIZED
+                    self._tool_synth_bus.publish(Event(
+                        kind=TOOL_SYNTHESIZED,
+                        session_id=self._tool_synth_session_id,
+                        data={"name": tool.name, "description": tool.description},
+                    ))
+                return f"registered tool {name!r}; it will be callable on the next turn"
+
+            schemas.append({
+                "name": "make_tool",
+                "description": (
+                    "Synthesize a new Python tool for this session. The "
+                    "code must define `run(**kwargs) -> str` at module top. "
+                    "Imports of os/subprocess/socket/shutil are banned; "
+                    "eval/exec/compile/open are banned. Code runs in a "
+                    "sandboxed subprocess on each call."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Snake_case identifier."},
+                        "description": {"type": "string"},
+                        "code": {"type": "string", "description": "Python source defining run(**kwargs) -> str."},
+                        "input_schema": {"type": "object", "description": "JSON Schema for the kwargs the tool accepts."},
+                        "smoke_test_kwargs": {"type": "object", "description": "Sample kwargs for the registration-time smoke test."},
+                    },
+                    "required": ["name", "description", "code"],
+                },
+            })
+            handlers["make_tool"] = _make_tool
+
+            for synth_schema in self._tool_synth.schemas():
+                schemas.append(synth_schema)
+            for name, fn in self._tool_synth.handlers().items():
+                handlers[name] = fn
+
+        if self._delegate_fn is not None:
+            def _delegate(task: str, role: str, model: str | None = None) -> str:
+                try:
+                    return self._delegate_fn(task=task, role=role, model=model)
+                except Exception as e:
+                    return f"error: {type(e).__name__}: {e}"
+
+            schemas.append({
+                "name": "delegate",
+                "description": (
+                    "Spawn a specialist subagent to solve a self-contained "
+                    "subtask. Returns the subagent's final answer. Use for "
+                    "decomposable problems; costs roll up into this session."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "task": {"type": "string", "description": "The subtask, written as a standalone instruction."},
+                        "role": {"type": "string", "description": "Role hint, e.g. 'planner', 'researcher', 'executor', 'critic'."},
+                        "model": {"type": "string", "description": "Optional model override (e.g. 'claude-haiku-4-5' for cheap subtasks)."},
+                    },
+                    "required": ["task", "role"],
+                },
+            })
+            handlers["delegate"] = _delegate
+
+        self.tool_schemas = schemas
+        self.handlers = handlers
 
     def reset(self) -> None:
         self.messages = []
         self.usage = Usage()
 
     def chat(self, user_input: str, max_iterations: int = 25) -> str:
+        # Recompute tools so newly attached/synthesized tools are visible
+        # this turn (when wired from a Runtime).
+        self._refresh_tools()
+
         self.messages.append({"role": "user", "content": user_input})
         last_text = ""
         turn_usage = Usage()
@@ -120,6 +241,8 @@ class Agent:
                 if not tool_results:
                     break
                 self.messages.append({"role": "user", "content": tool_results})
+                # Newly synthesized tools should be visible next turn.
+                self._refresh_tools()
                 continue
 
             # refusal, max_tokens, stop_sequence, model_context_window_exceeded, ...
@@ -169,17 +292,23 @@ class Agent:
             return response + warning, score
         return response, score
 
+    def _system_blocks(self) -> list[dict]:
+        blocks = [
+            {
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+        if self.extra_system:
+            blocks.append({"type": "text", "text": self.extra_system})
+        return blocks
+
     def _stream_one(self):
         with self.client.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
+            system=self._system_blocks(),
             tools=self.tool_schemas,
             thinking={"type": "adaptive", "display": "summarized"},
             output_config={"effort": self.effort},
