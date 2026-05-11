@@ -228,6 +228,32 @@ Honest list of limitations:
 These are **research problems**, not features we forgot. Naming them keeps the
 plan honest.
 
+## Runtime engine — the control plane
+
+A coordination engine drives the runtime. The runtime exposes:
+
+- **Submit** (`Runtime.submit(RunRequest)`) — returns a `RunHandle`.
+- **Stream** (`RunHandle.events()`) — typed `Event` records.
+- **Control** (`RunHandle.cancel()`) — cooperative cancellation.
+- **Compose** (`Runtime.submit_child(parent, request)`) — sub-runs with
+  rolled-up cost; the parent sees `subrun_started`/`subrun_completed` events.
+- **Inspect** (`Runtime.list_runs`, `runtime.skills`, `runtime.memory`).
+- **Persist** — memory, skills, traces, adapters all live under `~/.agi/`.
+
+The HTTP/SSE adapter (`agi.server`) is a thin shim over the same Python API:
+`POST /v1/runs`, `GET /v1/runs/{id}/events` (SSE), `POST /v1/runs/{id}/cancel`,
+plus skill / memory / metrics endpoints. A coordination engine can drive this
+runtime locally as a library or remotely over HTTP without changing its logic.
+
+### Event types (the wire format)
+
+`run_started`, `thinking`, `text_delta`, `text`, `tool_call`, `tool_result`,
+`skills_loaded`, `subrun_started`, `subrun_completed`, `reflection`,
+`critic_score`, `usage`, `done`, `error`, `cancelled`.
+
+Each event has `{type, run_id, ts, data}`; the run_id of sub-runs lets the
+coordination engine reconstruct the tree.
+
 ## Initial implementation roadmap
 
 Building this in stages, smallest viable end-to-end loop first.
@@ -264,10 +290,13 @@ real traces.
 
 ### Stage 3 — Skill library
 
-- [ ] `learner/skills.py` — directory of markdown skills, retrieve by description
+- [x] `agi/skills.py` — directory of markdown skills, retrieve by keyword
+      overlap, uses tracking, persistence
+- [x] Integrate into Agent: load top-K relevant skills into system prompt
+      (wired via `Runtime` → `_default_agent_factory` → `Agent.extra_system_prompt`)
 - [ ] Skill compilation: an LLM pass that proposes new skills from recent
       successful traces, with human review before commit
-- [ ] Integrate into Agent: load top-K relevant skills into system prompt
+- [ ] Semantic retrieval (embeddings) once raw keyword overlap saturates
 
 ### Stage 4 — Semantic memory
 
@@ -285,6 +314,17 @@ real traces.
 Decide based on eval results. If learning model is closing the gap on Opus,
 push harder: bigger base, more data, more compute. If not, the architecture
 might still be right but the model size is too small.
+
+### Stage R — Runtime engine ← landed
+
+- [x] `agi/runtime.py` — `Runtime`, `RunRequest`, `RunHandle`, `RunResult`
+- [x] `agi/events.py` — typed Event records, stable wire format
+- [x] `agi/server.py` — stdlib HTTP + SSE control plane
+- [x] Sub-agent `delegate(task, role)` tool with cost rollup and tree events
+- [x] Runtime tool synthesis (`make_tool`) sandboxed via subprocess + AST allow-list
+- [x] Reflection journal (auto-lesson tagged `lesson` in shared memory)
+- [x] Cooperative cancellation propagated from `RunHandle` into the agent loop
+- [x] 27 new unit tests covering all of the above; total suite is 51 green
 
 ## What success looks like
 
