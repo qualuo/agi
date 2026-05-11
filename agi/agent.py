@@ -72,6 +72,9 @@ class Agent:
         self.critic = critic  # optional learner.Critic; gates final output
         self.critic_threshold = critic_threshold
         self.last_critic_score: float | None = None
+        self.last_iterations: int = 0
+        self.last_aborted: bool = False
+        self.last_turn_usage: Usage = Usage()
         self.messages: list[dict] = []
         self.usage = Usage()
 
@@ -92,10 +95,23 @@ class Agent:
         self.messages = []
         self.usage = Usage()
 
-    def chat(self, user_input: str, max_iterations: int = 25) -> str:
+    def chat(
+        self,
+        user_input: str,
+        max_iterations: int = 25,
+        should_continue: Callable[[Usage], bool] | None = None,
+    ) -> str:
+        """Run the agent loop on `user_input` and return the final text.
+
+        `should_continue` is called after each turn with the cumulative-turn
+        Usage. Returning False breaks the loop early — used by Runtime to
+        enforce per-job budgets without poking at internals.
+        """
         self.messages.append({"role": "user", "content": user_input})
         last_text = ""
         turn_usage = Usage()
+        self.last_iterations = 0
+        self.last_aborted = False
 
         for _ in range(max_iterations):
             response = self._stream_one()
@@ -103,12 +119,17 @@ class Agent:
             self.messages.append({"role": "assistant", "content": response.content})
             self.usage.add(response.usage)
             turn_usage.add(response.usage)
+            self.last_iterations += 1
 
             for block in response.content:
                 if block.type == "text" and block.text:
                     last_text = block.text
 
             if response.stop_reason == "end_turn":
+                break
+
+            if should_continue is not None and not should_continue(turn_usage):
+                self.last_aborted = True
                 break
 
             if response.stop_reason == "pause_turn":
@@ -124,6 +145,8 @@ class Agent:
 
             # refusal, max_tokens, stop_sequence, model_context_window_exceeded, ...
             break
+
+        self.last_turn_usage = turn_usage
 
         last_text, critic_score = self._apply_critic_gate(user_input, last_text)
         self.last_critic_score = critic_score
