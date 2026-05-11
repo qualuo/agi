@@ -307,6 +307,88 @@ The architecture is "wrong" — and we should redesign — if:
 - Skill library is never used by the agent (LLM doesn't retrieve them well).
 - Cost of running this loop exceeds the value of the improvement.
 
+## Runtime engine — making the harness driveable
+
+The pieces above describe one agent solving one task. A coordination engine —
+the thing routing many tasks across many agents, possibly heterogeneous — needs
+a stable contract to drive runtimes against. That's what `runtime/` provides.
+
+### What the runtime is
+
+A managed wrapper around the Agent that exposes:
+
+- **Sessions** — durable units of state. Each session owns a fresh Agent, an
+  isolated Memory file under `~/.agi/runtime/sessions/{sid}/`, and a Budget.
+  A coordinator creates one per logical task or per user, and the session
+  persists across calls until deleted or aged out.
+- **Jobs** — units of work. A job is a single chat-turn invocation against a
+  session, executed on a thread pool. Jobs have an event stream (text deltas,
+  tool calls, completion) and a cooperative cancel flag.
+- **Budgets** — per-session caps on input/output/total tokens, USD spend,
+  turns, and job count. Checked before each turn; over-budget calls raise
+  `BudgetError` (HTTP 402) and the next-turn slop is by design.
+- **Capability manifest** — machine-readable description of tools, models,
+  pricing, and feature flags. A coordinator reads it on startup to decide
+  which runtimes can take which tasks.
+- **Metrics** — counters, gauges, and p50/p95/p99 latency histograms over
+  HTTP, no Prometheus dependency.
+
+### How a coordination engine uses it
+
+```
+┌─────────────────┐                  ┌─────────────────────────────┐
+│   Coordination  │  GET /v1/cap...  │     agi-runtime (HTTP)      │
+│     Engine      │ ───────────────► │                              │
+│                 │                  │  ┌────────────────────────┐ │
+│  - task router  │  POST /sessions  │  │  SessionManager        │ │
+│  - budgeting    │ ◄───────────────►│  │   ├─ Session(id, budget)│ │
+│  - retries      │                  │  │   │   ├─ Agent (Opus)   │ │
+│  - SLOs         │  POST /jobs      │  │   │   ├─ Memory         │ │
+│                 │ ◄───────────────►│  │   │   └─ TraceLogger    │ │
+│                 │  GET /jobs/{}/   │  │   └─ ...                │ │
+│                 │      stream (SSE)│  └────────────────────────┘ │
+│                 │                  │                              │
+│                 │  GET /metrics    │  ┌────────────────────────┐ │
+│                 │ ◄───────────────►│  │  JobManager (pool)     │ │
+└─────────────────┘                  │  └────────────────────────┘ │
+                                     └─────────────────────────────┘
+```
+
+The coordinator never touches the Agent directly. It addresses sessions and
+jobs through stable IDs, enforces its own SLOs from `/metrics`, and can swap a
+runtime instance out (capability manifest changed, instance unhealthy, cheaper
+runtime available) without changing call sites.
+
+### Design choices and tradeoffs
+
+- **Stdlib only.** The HTTP server is `http.server.ThreadingHTTPServer` and
+  the client is `urllib`. Zero new dependencies means the runtime ships
+  wherever the agent does and starts in milliseconds. FastAPI/uvicorn would
+  give async out-of-the-box but the Agent's SDK calls are synchronous; a
+  threadpool model fits the workload better than asyncio gymnastics.
+- **Cooperative cancel.** Aborting a mid-flight SDK call would corrupt tool
+  accounting; we flip a flag and stop before the *next* turn. This makes
+  cancel safe but not instant.
+- **Budget enforcement is pre-turn.** Checking after the response would
+  require backing out partial usage — fragile. We accept up-to-one-turn of
+  overshoot in exchange for clean state.
+- **Mock backend.** `runtime.mock_agent.MockAgent` is a drop-in for the real
+  Agent; tests and demos exercise the entire surface (sessions, jobs, SSE,
+  budgets, metrics) with no API key. Coordination engines can be developed
+  against the runtime without spending a cent.
+- **Auth.** Bearer-token only, set via `AGI_RUNTIME_TOKEN`. This is meant to
+  run behind a coordinator on a private network; a public-facing deployment
+  needs a real auth layer in front.
+
+### What the runtime does not solve
+
+- Multi-host coordination. One runtime = one process. Sharding across hosts
+  is the coordinator's job.
+- Durable job storage. Jobs live in process memory; restart loses queued
+  work. Persistent queue (e.g. SQLite-backed) is a natural next step.
+- Tenant isolation beyond per-session memory files. A coordinator that
+  serves multiple end-users should still namespace its session IDs.
+
 ## Discussion / open questions
 
 These are real questions, not rhetorical:
