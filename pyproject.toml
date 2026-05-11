@@ -1,7 +1,7 @@
 [project]
 name = "agi"
-version = "0.1.0"
-description = "An agent harness built on Claude Opus 4.7."
+version = "0.2.0"
+description = "AI runtime engine — addressable agent execution with typed tasks, event streams, budgets, and skills."
 requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.50.0",
@@ -21,6 +21,7 @@ learner = [
 
 [project.scripts]
 agi = "agi.__main__:main"
+agi-runtime = "agi.server:main"
 
 [build-system]
 requires = ["setuptools>=61"]
