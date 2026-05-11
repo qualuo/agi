@@ -18,12 +18,14 @@ agi/                # runtime + agent + reference coordinator
   coordinator.py    # reference Coordinator + Goal/Plan/PlanStep abstractions
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
+  reflection.py     # per-task lessons-to-memory loop (medium-timescale learning)
+  world_model.py    # observed-entity tracker (file/url/command + outcomes)
   toolsynth.py      # sandboxed Python tool synthesis (subprocess isolated)
   tasks.py          # Task / TaskQueue / TaskRunner — scheduled work
   persistence.py    # checkpoint sessions to disk and rehydrate
   memory.py         # persistent JSONL memory store + namespacing (multi-tenant)
   costs.py          # per-turn + cumulative token usage and $ tracking
-  tools.py          # builtin tools: file, shell, web, memory
+  tools.py          # builtin tools: file, shell, web, memory (+ world auto-record)
   __main__.py       # CLI: python -m agi
 learner/            # learning track — small open base + LoRA loop
   critic.py         # trace-quality critic (small MLP, trains on CPU)
@@ -35,7 +37,7 @@ learner/            # learning track — small open base + LoRA loop
 evals/
   tasks.jsonl       # eval tasks (math, file ops, recall, search)
   run.py            # eval runner
-tests/              # 99 unit tests, all run without an API key
+tests/              # 128 unit tests, all run without an API key
 ARCHITECTURE.md     # full design — read this for direction
 PLAN.md             # stage roadmap
 ```

@@ -57,6 +57,7 @@ class SessionConfig:
     enable_web_fetch: bool = True
     enable_tool_synthesis: bool = False
     enable_delegation: bool = False
+    enable_reflection: bool = False
     use_skills: bool = True
     critic_threshold: float = 0.5
     system_prompt_extra: str | None = None
@@ -100,6 +101,8 @@ class Session:
         tool_synth: ToolSynthRegistry | None = None,
         tracer=None,
         critic=None,
+        reflector=None,
+        world_model=None,
         agent_factory: Callable[..., Any] | None = None,
         parent_session_id: str | None = None,
     ) -> None:
@@ -112,6 +115,8 @@ class Session:
         self._tool_synth = tool_synth
         self._tracer = tracer
         self._critic = critic
+        self._reflector = reflector
+        self._world_model = world_model
         self._agent_factory = agent_factory
         self._agent: Any | None = None
         self._lock = threading.Lock()
@@ -191,8 +196,48 @@ class Session:
             },
         ))
 
+        self._maybe_reflect(user_input, final_text, agent)
         self._enforce_budget()
         return final_text
+
+    def _maybe_reflect(self, user_input: str, final_text: str, agent: Any) -> None:
+        """If reflection is enabled and a reflector is wired, distill lessons
+        into long-term memory. Best-effort — failures are surfaced as an
+        ERROR event but do not abort the chat."""
+        if not self.state.config.enable_reflection or self._reflector is None:
+            return
+        tools_used: list[str] = []
+        for msg in getattr(agent, "messages", [])[-8:]:
+            content = msg.get("content")
+            if isinstance(content, list):
+                for block in content:
+                    name = getattr(block, "name", None) or (
+                        block.get("name") if isinstance(block, dict) else None
+                    )
+                    btype = getattr(block, "type", None) or (
+                        block.get("type") if isinstance(block, dict) else None
+                    )
+                    if btype == "tool_use" and name:
+                        tools_used.append(name)
+        try:
+            result = self._reflector.reflect(
+                user_prompt=user_input,
+                final_text=final_text,
+                tools_used=tools_used or None,
+            )
+        except Exception as e:
+            self._bus.publish(Event(
+                kind=ERROR,
+                session_id=self.state.id,
+                data={"phase": "reflection", "type": type(e).__name__, "message": str(e)},
+            ))
+            return
+        if result.error:
+            self._bus.publish(Event(
+                kind=ERROR,
+                session_id=self.state.id,
+                data={"phase": "reflection", "message": result.error},
+            ))
 
     def cancel(self) -> None:
         """Request the next chat boundary to abort. Best-effort — does not
@@ -268,7 +313,7 @@ class Session:
         else:
             factory = self._agent_factory
 
-        agent = factory(
+        agent_kwargs: dict[str, Any] = dict(
             memory=self._memory,
             model=self.state.config.model,
             max_tokens=self.state.config.max_tokens,
@@ -280,6 +325,9 @@ class Session:
             critic=self._critic,
             critic_threshold=self.state.config.critic_threshold,
         )
+        if self._world_model is not None:
+            agent_kwargs["world_model"] = self._world_model
+        agent = factory(**agent_kwargs)
         if self.state.config.system_prompt_extra and hasattr(agent, "extra_system"):
             agent.extra_system = self.state.config.system_prompt_extra
         # Restore conversation messages if hydrating from a checkpoint
@@ -343,6 +391,8 @@ class Runtime:
         bus: EventBus | None = None,
         tracer=None,
         critic=None,
+        reflector=None,
+        world_model=None,
         agent_factory: Callable[..., Any] | None = None,
         skills_dir: str | Path | None = None,
         session_store=None,
@@ -354,6 +404,14 @@ class Runtime:
         self.bus = bus or EventBus()
         self.tracer = tracer
         self.critic = critic
+        # Reflector is opt-in per session (SessionConfig.enable_reflection).
+        # If set on the Runtime, sessions inherit it; instantiating it here
+        # is also fine but pulls in the anthropic SDK eagerly so we don't.
+        self.reflector = reflector
+        # World model is shared across all sessions on this runtime by
+        # default; coordinators that want per-tenant isolation pass a
+        # different one in. Set to None to disable observation tracking.
+        self.world_model = world_model
         self._agent_factory = agent_factory
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
@@ -426,6 +484,8 @@ class Runtime:
                 tool_synth=self.tool_synth,
                 tracer=self.tracer,
                 critic=self.critic,
+                reflector=self.reflector,
+                world_model=self.world_model,
                 agent_factory=self._agent_factory,
                 parent_session_id=parent_session_id,
             )
@@ -457,6 +517,8 @@ class Runtime:
                 tool_synth=self.tool_synth,
                 tracer=self.tracer,
                 critic=self.critic,
+                reflector=self.reflector,
+                world_model=self.world_model,
                 agent_factory=self._agent_factory,
                 parent_session_id=state.parent_session_id,
             )

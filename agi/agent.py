@@ -61,6 +61,7 @@ class Agent:
         tracer=None,
         critic=None,
         critic_threshold: float = 0.5,
+        world_model=None,
     ) -> None:
         self.client = anthropic.Anthropic()
         self.memory = memory or Memory()
@@ -71,6 +72,7 @@ class Agent:
         self.tracer = tracer  # optional TraceLogger for the learning loop
         self.critic = critic  # optional learner.Critic; gates final output
         self.critic_threshold = critic_threshold
+        self.world_model = world_model  # optional WorldModel for entity tracking
         self.last_critic_score: float | None = None
         self.messages: list[dict] = []
         self.usage = Usage()
@@ -84,7 +86,7 @@ class Agent:
         self._delegate_bus = None
         self._delegate_session_id = None
 
-        schemas, handlers = make_tools(self.memory)
+        schemas, handlers = make_tools(self.memory, world_model=self.world_model)
         self._builtin_tool_schemas: list[dict] = list(schemas)
         self._builtin_handlers: dict[str, Callable[..., str]] = dict(handlers)
 
