@@ -178,6 +178,47 @@ The third loop is **gated by eval pass rate**. An adapter that regresses on
 the eval suite is rejected, no matter how much "learning" it did. This is the
 rollback story.
 
+### 9. Runtime + coordination surface
+
+Everything above describes one agent's internal anatomy. Real systems run
+*many* of these, driven by an outer coordination engine — a scheduler, a
+multi-agent orchestrator, a UI session manager, or another agent acting as a
+parent. The runtime layer is what those drivers talk to.
+
+The contract:
+
+- **Addressable sessions.** Each agent instance has a stable id. Open a
+  session, send messages, observe events, close it. Sessions persist across
+  many turns and carry their own memory + cumulative usage.
+- **Structured events.** Every observable thing an agent does within a turn
+  emits a typed event: `TurnStart`, `TextDelta`, `ThinkingDelta`,
+  `ToolUseStart`, `ToolUseResult`, `ServerToolUse`, `UsageDelta`, `TurnEnd`,
+  `ErrorEvent`. Each event carries `session_id` and a monotonic `seq`. The
+  same event objects are emitted in-process and serialized over SSE — wire
+  format and Python API are isomorphic.
+- **Cost metering and budgets.** Every LLM call emits a `UsageDelta` with
+  running cost. Sessions can be opened with a `budget_usd` cap; further turns
+  are refused once spend exceeds it, surfaced as an `ErrorEvent` that the
+  coordinator can act on (raise the budget, abandon the task, route to a
+  cheaper model).
+- **Composable orchestration.** A coordinator decomposes a parent task into
+  child tasks, opens a sub-session per child with its own role + budget,
+  runs them concurrently, then synthesizes their outputs in a final turn.
+  Costs roll up so the parent task knows what the whole tree cost. The
+  reference `Coordinator` uses the same runtime API external orchestrators
+  do — no privileged in-process backdoor.
+
+Why this matters for the architecture above: the four learning loops
+(memory, skills, adapter training, critic) all need a place where many turns
+happen so they can observe them. The runtime is that place. Without it the
+agent is a one-shot CLI; with it the agent is a substrate other systems can
+build on.
+
+**v1 status:** in-process Python runtime, threaded one-worker-per-session,
+HTTP/SSE server using stdlib only. **Later:** asyncio version for high
+fan-out, durable session resumption (state to disk), distributed runtime
+across multiple hosts.
+
 ## Information flow for a single task
 
 1. User sends a message.
