@@ -1,7 +1,27 @@
 # Architecture
 
-A system that learns and adapts to new input. Honest about what's open research
-vs. what's tractable engineering.
+A system that learns and adapts to new input, packaged as a typed runtime that
+a coordination engine can drive. Honest about what's open research vs. what's
+tractable engineering.
+
+## Runtime as the integration surface
+
+The Agent class implements one conversation loop. The **Runtime** (in
+`agi/runtime.py`) is what an external coordination engine — a planner, a
+workflow orchestrator, a multi-agent supervisor — actually binds against. The
+runtime hosts many addressable sessions, advertises its capabilities, streams
+typed events, accounts for token cost per run, supports idempotent retries and
+cancellation, and rolls usage up across sessions.
+
+`agi/server.py` exposes the same surface over HTTP/JSON + SSE so a coordinator
+in another process or language can drive it without sharing memory. See
+`README.md` for the API surface.
+
+Coordination engines stay above this layer (`agi/coordinator.py` ships a
+demonstration: rule-based and LLM-planner decomposition that fans subtasks
+out to fresh sessions and aggregates results). The runtime is intentionally
+unopinionated about how its consumer plans — the contract is the manifest,
+the event stream, and the RunResult.
 
 ## The core insight: learning operates at multiple timescales
 
