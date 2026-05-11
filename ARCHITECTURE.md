@@ -193,6 +193,46 @@ rollback story.
 11. (Async, periodic) adapter training reads filtered traces, trains, validates,
     swaps adapter on success.
 
+## The Runtime layer
+
+Everything above describes the **components** of a learning agent. To make
+those components usable by another system — a workflow planner, a multi-agent
+orchestrator, an IDE, a CI pipeline — they need to sit behind a substrate
+with a stable contract. That substrate is the **Runtime** (`agi/runtime.py`).
+
+A Runtime exposes the agent as four primitives:
+
+```
+runtime.capabilities()           → tools, skills, models, supported features
+runtime.open_session(config)     → a stateful thread of work
+runtime.run_task(session, input) → a structured, budget-bounded task
+runtime.close_session(session)
+```
+
+with first-class budgets (token / $ / time / iteration), cancellation, and a
+JSON event stream while a task runs. The same contract is exposed in-process
+(Python import) and cross-process (HTTP+SSE in `agi/server.py`).
+
+**Why this matters for the architecture, not just the API surface:**
+
+- The coordinator above the runtime is the one that *decides* whether
+  scaffolding wins, learning wins, or both. Multiple Runtimes (one frozen-Opus,
+  one base+adapter) can register their capabilities and the coordinator routes
+  by them. The eval-gated adapter swap (component §8) becomes "the
+  base+adapter Runtime advertises a higher eval score for this task class, so
+  the coordinator routes there".
+- Sessions are the natural unit of *learning context*: per-session memory,
+  attached skills, and accumulated traces. The trace logger writes
+  per-session; the LoRA loop reads filtered per-session traces.
+- The `delegate` tool inside a session is just `runtime.open_session(...)`
+  with `parent_session_id` set. Multi-agent (component §future) falls out of
+  the same primitive instead of needing a new abstraction.
+
+Things deliberately **not** in the runtime: queuing, scheduling, routing,
+auth-N (the bearer-token check is a stopgap, not a real story). Those live in
+the coordination engine above. The runtime stays small; replacing the
+coordinator doesn't require touching it.
+
 ## Pluggable choices
 
 The architecture commits to *shape*, not *specifics*. These swap independently:
