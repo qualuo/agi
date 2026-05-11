@@ -307,6 +307,67 @@ The architecture is "wrong" — and we should redesign — if:
 - Skill library is never used by the agent (LLM doesn't retrieve them well).
 - Cost of running this loop exceeds the value of the improvement.
 
+## Runtime façade for a coordination engine
+
+The architecture above describes the *internals* of the agent. The
+**runtime façade** (`agi/runtime.py`) is the external shape: what a parent
+coordination engine sees when it treats this agent as one of its runtime
+resources.
+
+A coordination engine — planner, workflow runner, multi-agent orchestrator —
+doesn't want a REPL or a long-lived chat. It wants:
+
+1. **Programmatic IO.** Hand it a structured `Task`, get back a structured
+   `Result`. Both JSON-serializable. No screen-scraping prose.
+2. **Resource controls.** Per-task token budget, wall-clock deadline,
+   max iterations, tool whitelist. Failure modes are explicit statuses
+   (`budget_exceeded`, `deadline_exceeded`, `cancelled`, `error`) rather
+   than exceptions the parent has to catch and interpret.
+3. **Sessions it can address.** A `session_id` it spawns, runs N tasks
+   against (with continuity), and closes when done. Many sessions in
+   parallel (one per workflow branch, one per user, one per role).
+4. **Live event stream.** As tasks run, events flow out — `started`,
+   `iteration`, `tool_call`, `finished` — so the coordinator can render
+   progress, throttle, route follow-ups, or kill a stalled session.
+5. **Capability introspection.** `runtime.describe()` returns the concrete
+   tool list, server tools, dynamic tools, and feature flags (skills?
+   critic? reflection?). The coordinator routes by capability, not by
+   guesswork.
+6. **Bounded delegation.** If a task is decomposable, the agent can call
+   the `delegate` tool — but only up to `delegate_depth` levels. The
+   runtime enforces this; the parent can't be DoS'd by recursive blow-up.
+
+```
+            Coordination Engine
+                  │  Task(goal, budget, deadline, allowed_tools, …)
+                  ▼
+        ┌─────────────────────────┐
+        │     agi.Runtime         │
+        │  describe() / spawn()   │
+        │  execute() / stream()   │
+        └────────┬────────────────┘
+                 │ owns
+                 ▼
+          ┌───────────────┐    events  ┌────────────────┐
+          │   Session     │  ────────▶ │  on_event(...) │
+          │  (id, agent)  │            └────────────────┘
+          └──────┬────────┘
+                 │ run(Task)
+                 ▼
+          ┌──────────────┐
+          │   Agent      │  ← all the timescale machinery above
+          │ (loop + tools)
+          └──────────────┘
+                 │
+                 ▼
+            Result{status, output, usage, cost, capabilities_used, ...}
+```
+
+The runtime stays deliberately thin: no scheduler, no queue, no policy
+engine. Those are the coordinator's job. The runtime exposes one capable
+agent (or many sessions of one) as a callable, observable, bounded
+resource.
+
 ## Discussion / open questions
 
 These are real questions, not rhetorical:
