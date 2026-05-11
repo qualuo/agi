@@ -307,6 +307,50 @@ The architecture is "wrong" — and we should redesign — if:
 - Skill library is never used by the agent (LLM doesn't retrieve them well).
 - Cost of running this loop exceeds the value of the improvement.
 
+## Runtime engine (added)
+
+The agent as originally described is a *process* — one Python CLI run, one
+agent. To be useful to an external **coordination engine** (workflow
+orchestrator, multi-agent planner, product backend), the same agent needs
+to run as a *runtime*: many sessions concurrently, addressable by id,
+budget-capped, with observable event streams.
+
+That's what `agi.runtime.Runtime` provides. The split:
+
+| Concern                | Lives in            | Notes                                          |
+|------------------------|---------------------|------------------------------------------------|
+| Decide what to attempt | Coordinator         | External — not in this repo (LangGraph, etc.)  |
+| Execute a goal         | `Runtime.submit`    | Spawns one Agent on a thread-pool slot         |
+| Observe progress       | `Runtime.events`    | Structured events; SSE over HTTP               |
+| Cap cost / time        | `Budget`            | Hard cap, enforced between turns               |
+| Decompose work         | `Plan` / `Subgoal`  | DAG; substitution via `{{ name }}`             |
+| Speak to outside       | `agi.server`        | stdlib HTTP + SSE; auth via shared secret      |
+
+This separation is what lets a coordination engine drive the runtime
+without inheriting opinions: the runtime doesn't decide *what* to
+decompose or *when* to retry; it just executes and reports. Coordinators
+that prefer their own decomposition strategy build it on top of
+`Runtime.submit` directly; `Plan` is one default offered for the common
+case.
+
+Events stream as structured dataclasses (`agi.events`) on a Python
+callback in-process, and as SSE on the wire. The same wire format covers
+the dev-loop REPL (verbose printing) and a production deployment behind
+an orchestrator. Investor-relevant consequence: per-session cost and
+latency are observable in real time, so unit economics are measurable
+without instrumentation work.
+
+What the runtime deliberately doesn't do:
+
+- **Decide goals.** It executes them. A coordinator decides.
+- **Retry / fall-back.** That's a policy. Coordinators implement it; the
+  runtime exposes the signals (status, cost, error) they need.
+- **Persist sessions across process restarts.** v1 keeps sessions in
+  memory. Durable sessions would slot in behind the same API (write the
+  event log to disk, replay on start).
+- **Authenticate users.** v1 has one shared secret. Multi-tenant auth
+  belongs in a service that fronts the runtime.
+
 ## Discussion / open questions
 
 These are real questions, not rhetorical:
