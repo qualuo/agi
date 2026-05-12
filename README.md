@@ -591,6 +591,86 @@ rejected up front) — and the rolled-up compliance summary.
 This is the surface a coordination engine actually wants: declarative
 goals in, auditable outcomes out, with a paper trail you can bill against.
 
+### TicketMarket — multi-tenant marketplace dispatch
+
+The runtime sells outcomes (SLO tickets). `TicketMarket` adds the layer
+a coordination engine needs when those outcomes are sold to many tenants:
+per-tenant identity + tier, quote-before-spend pricing, quota enforcement,
+tier-weighted fair scheduling, and refund-aware invoicing. The result is
+one method call that gives an operator everything a finance dashboard
+wants — revenue, refunds, cost-of-goods, gross margin, by-tenant rollup.
+
+```python
+from agi import (
+    MarketTicket, RuntimeDriver, Tenant, TicketMarket,
+    TIER_ECONOMY, TIER_PREMIUM, TIER_STANDARD,
+)
+from agi.contract import TicketSLO
+
+driver = RuntimeDriver(runtime=rt)
+market = TicketMarket(driver, max_concurrent=8, invoices_path="invoices.jsonl")
+
+market.register_tenant(Tenant(
+    tenant_id="acme",
+    tier=TIER_PREMIUM,            # premium / standard / economy
+    monthly_budget_usd=500.0,     # hard quota; rejections when exhausted
+    markup_pct=0.50,              # tenant pays 50% over runtime cost
+))
+
+# 1. Quote before dispatch — surface the price to the tenant.
+quote = market.quote(MarketTicket(
+    intent="summarize Q4 earnings",
+    tenant_id="acme",
+    max_bid_usd=0.80,
+))
+# quote.list_price_usd     # cost_forecast × (1 + markup_pct)
+# quote.margin_usd         # list_price - cost_forecast
+# quote.accepted, quote.reason
+# quote.fits_bid, quote.fits_budget
+
+# 2. Submit — quote+enqueue+dispatch+settle in one call.
+handle  = market.submit(MarketTicket(
+    intent="summarize Q4 earnings",
+    tenant_id="acme",
+    max_bid_usd=0.80,
+    slo=TicketSLO(min_p_success=0.90, max_cost_usd=0.80, max_latency_s=30.0),
+))
+invoice = handle.result()
+# invoice.list_price_usd     # what tenant was charged on success
+# invoice.refund_usd         # auto-flowed from SLO breach
+# invoice.net_charge_usd     # list_price - refund (what we actually bill)
+# invoice.cost_of_goods_usd  # what the runtime spent
+# invoice.gross_margin_usd   # net_charge - cost_of_goods (what we keep)
+
+# 3. Dashboard rollup — what an operator (and an investor) wants to see.
+stats = market.market_stats()
+# stats["revenue_usd"], stats["refunds_usd"], stats["net_revenue_usd"]
+# stats["cost_of_goods_usd"], stats["gross_margin_usd"], stats["gross_margin_pct"]
+# stats["queued_by_tier"], stats["in_flight_by_tier"]
+# stats["per_tenant"]   — sorted by net charged, top spenders first
+```
+
+Tier-weighted scheduling: under contention the market preempts the queue
+so premium tickets dispatch ahead of economy. Tier weights default to
+premium=4, standard=2, economy=1 — premium is therefore ~4x more likely
+to dispatch than economy when all queues are full. Per-tenant
+`monthly_budget_usd` is enforced *including* provisional reservations
+from in-flight tickets, so a tenant cannot over-spend by firing many
+parallel sub-budget tickets.
+
+If a market ticket carries a `TicketSLO`, refunds from SLO breaches
+flow into the invoice's `refund_usd` automatically — no bespoke
+reconciliation logic. Infeasible SLOs are caught at the quote stage and
+refused (`REASON_INFEASIBLE_SLO`) so a tenant never pays for a
+guaranteed miss.
+
+See `examples/market_demo.py` for the three-scene story:
+quote → mixed-tier flood → refund-aware SLO ticket → operator rollup.
+
+This is the line between "I sell you outcomes" and "I sell you a
+managed AI service with predictable margins." The runtime does the
+work; the market does the economics.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
