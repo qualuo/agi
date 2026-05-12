@@ -671,6 +671,84 @@ This is the line between "I sell you outcomes" and "I sell you a
 managed AI service with predictable margins." The runtime does the
 work; the market does the economics.
 
+### TicketEconomist — closed-loop margin defender + scenario simulator
+
+`TicketMarket` prices and bills work. `TicketEconomist` is the control
+plane that watches the marketplace's own economics, recommends pricing /
+routing adjustments when margins erode or refunds climb, and (optionally)
+applies those adjustments back to the market automatically. It also
+exposes a `simulate(scenario)` what-if engine so an operator can stress-
+test the business before a real cost shock or traffic surge.
+
+```python
+from agi import (
+    TicketEconomist, MarginTarget, Scenario,
+    TIER_PREMIUM, TIER_STANDARD, TIER_ECONOMY,
+)
+
+economist = TicketEconomist(
+    market,
+    window_s=300.0,                       # rolling evaluation window
+    targets=[
+        MarginTarget(tier=TIER_PREMIUM,  gross_margin_pct_floor=0.25, refund_rate_ceiling=0.05),
+        MarginTarget(tier=TIER_STANDARD, gross_margin_pct_floor=0.15, refund_rate_ceiling=0.12),
+        MarginTarget(tier=TIER_ECONOMY,  gross_margin_pct_floor=0.05, refund_rate_ceiling=0.20),
+    ],
+    adjustments_path="adjustments.jsonl", # append-only audit ledger
+)
+
+# Advisory mode: coordination engine pulls a health snapshot + recs.
+report = economist.health()
+# report.overall.gross_margin_pct, .refund_rate, .net_revenue_usd, ...
+# report.by_tier, report.by_tenant
+# report.healthy, report.score   (0..1 aggregate)
+for adj in report.adjustments:
+    # adj.kind in {"raise_markup","pause_tenant","resume_tenant",...}
+    # adj.severity in {"info","warn","critical"}
+    # adj.rationale carries the evidence the floor/ceiling was breached
+    print(adj.rationale)
+
+# Apply (or dry-run).
+economist.apply(report.adjustments)               # mutates Tenant fields
+economist.apply(report.adjustments, dry_run=True) # observe without acting
+
+# Auto-pilot: background control loop applies adjustments every
+# `control_interval_s`. Idempotent; `auto_pilot(enable=False)` stops it.
+economist.auto_pilot(enable=True)
+
+# Scenario simulator: project forward without spending. Output carries
+# the actions the autopilot *would* have produced — operators see what
+# they're about to do before any real spend.
+sim = economist.simulate(Scenario(
+    traffic_multiplier=2.0,   # double current arrival rate
+    cost_multiplier=1.15,     # 15% rise in unit cost
+    duration_s=3600.0,        # project one hour forward
+))
+# sim.projected_revenue_usd, .projected_gross_margin_pct, ...
+# sim.per_tier, sim.per_tenant
+# sim.actions_recommended    # what the autopilot would do under this scenario
+```
+
+The economist holds no LLM dependency. It reads the invoices the market
+already wrote, makes deterministic decisions from rolling windows, and
+pushes mutations back through the market's existing public surface
+(`pause_tenant`, mutating `Tenant.markup_pct`, etc.). When a coordination
+engine subscribes to its event bus (`economist.health_reported`,
+`economist.adjustment_applied`, `economist.scenario_simulated`), every
+control-plane decision is observable in real time.
+
+Every applied adjustment is JSONL-persisted with the evidence that
+triggered it — finance and regulators can reconstruct any decision.
+
+See `examples/economist_demo.py` for the three-scene story:
+healthy baseline → cost-shock margin erosion + auto-applied raise →
+five stress-test scenarios (2x traffic, 15% cost shock, SLO outage, etc.).
+
+This is the line between "we sell a managed AI service" and "we operate
+a managed AI business that defends its own gross margin." A coordination
+engine plugs the economist in once and gets a self-policing marketplace
+plus a stress-test workbench for the operator.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
