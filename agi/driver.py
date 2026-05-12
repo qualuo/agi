@@ -348,7 +348,25 @@ class RuntimeDriver:
             "deferred": 0,
             "downgraded": 0,
             "cancelled": 0,
+            "portfolio_batches": 0,
+            "portfolio_skipped": 0,
         }
+        # Lazy import to avoid an import cycle: portfolio depends on driver.
+        self._portfolio_optimizer: Any | None = None
+
+    @property
+    def portfolio(self) -> Any:
+        """Lazy `PortfolioOptimizer` bound to this driver's estimator.
+
+        A coordination engine that wants to plan-only (no dispatch) can
+        call `driver.portfolio.plan(...)` directly. The optimizer
+        observes the same forecasts the driver uses for admission, so
+        plan and admission decisions stay consistent.
+        """
+        if self._portfolio_optimizer is None:
+            from agi.portfolio import PortfolioOptimizer
+            self._portfolio_optimizer = PortfolioOptimizer(self.estimator)
+        return self._portfolio_optimizer
 
     # --- public API -----------------------------------------------
 
@@ -440,6 +458,85 @@ class RuntimeDriver:
         that don't want to manage the streaming surface."""
         ticket = self.submit(request)
         return ticket.result(timeout=timeout)
+
+    def submit_portfolio(
+        self,
+        requests: list[TicketRequest],
+        *,
+        total_budget_usd: float,
+        value_weights: list[float] | None = None,
+        candidate_models: list[str] | None = None,
+        plan_only: bool = False,
+        allow_skip: bool = True,
+        method: str = "auto",
+    ) -> tuple[list[Ticket | None], Any]:
+        """Plan + dispatch a batch under a single shared budget.
+
+        Picks one model per request (or "skip") to maximize total
+        expected p_success subject to the budget, then submits each
+        non-skipped allocation as a normal `Ticket`. Skipped requests
+        return `None` in the parallel ticket list so the caller can
+        keep input/output indices aligned.
+
+        Returns `(tickets, plan)`. The plan is a `PortfolioPlan`
+        carrying the expected_cost / expected_value / per-request
+        decisions — durable, JSON-serializable, suitable for a
+        coordination engine's audit log.
+
+        Set `plan_only=True` to get a quote without dispatching.
+        """
+        from agi.portfolio import PortfolioOptimizer
+
+        optimizer = self.portfolio
+        if candidate_models is not None or method != "auto":
+            # Honor caller overrides without mutating the shared instance.
+            optimizer = PortfolioOptimizer(
+                self.estimator,
+                candidate_models=candidate_models
+                or optimizer.candidate_models,
+                value_floor=optimizer.value_floor,
+            )
+        plan = optimizer.plan(
+            requests,
+            total_budget_usd=total_budget_usd,
+            value_weights=value_weights,
+            candidate_models=candidate_models,
+            allow_skip=allow_skip,
+            method=method,
+        )
+        if plan_only:
+            with self._lock:
+                self._stats["portfolio_skipped"] += plan.skipped_count
+            return [], plan
+
+        tickets: list[Ticket | None] = []
+        for alloc in plan.allocations:
+            if alloc.skipped:
+                tickets.append(None)
+                continue
+            # Clone the request with the optimizer-selected model.
+            cfg = alloc.request.config or SessionConfig()
+            cfg = _clone_config(cfg, model=alloc.chosen.model)
+            req = TicketRequest(
+                intent=alloc.request.intent,
+                tenant_id=alloc.request.tenant_id,
+                budget_usd=alloc.request.budget_usd,
+                deadline_ts=alloc.request.deadline_ts,
+                config=cfg,
+                allow_downgrade=alloc.request.allow_downgrade,
+                namespace=alloc.request.namespace,
+                metadata={
+                    **alloc.request.metadata,
+                    "portfolio_chosen_model": alloc.chosen.model,
+                    "portfolio_expected_cost_usd": alloc.chosen.estimated_cost_usd,
+                    "portfolio_expected_p_success": alloc.chosen.estimated_p_success,
+                },
+            )
+            tickets.append(self.submit(req))
+        with self._lock:
+            self._stats["portfolio_batches"] += 1
+            self._stats["portfolio_skipped"] += plan.skipped_count
+        return tickets, plan
 
     def get_ticket(self, ticket_id: str) -> Ticket | None:
         with self._lock:
