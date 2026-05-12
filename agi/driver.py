@@ -84,6 +84,13 @@ COMPLETED = "completed"
 FAILED = "failed"
 CANCELLED = "cancelled"
 
+# Re-exported for `agi.contract` so import order doesn't matter.
+__all__ = [
+    "PENDING", "ESTIMATING", "DEFERRED", "REJECTED",
+    "DISPATCHED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED",
+    "TicketRequest", "Ticket", "Decision", "Receipt", "RuntimeDriver",
+]
+
 # --- decision kinds (causal trace) -----------------------------------
 
 D_ESTIMATE = "estimate"
@@ -305,6 +312,8 @@ class RuntimeDriver:
         policy: Any | None = None,
         receipts_path: str | os.PathLike[str] | None = None,
         max_concurrent: int = 8,
+        ledger: Any | None = None,
+        compliance_path: str | os.PathLike[str] | None = None,
     ) -> None:
         if runtime is None and pool is None:
             raise ValueError("RuntimeDriver requires either runtime= or pool=")
@@ -350,9 +359,23 @@ class RuntimeDriver:
             "cancelled": 0,
             "portfolio_batches": 0,
             "portfolio_skipped": 0,
+            "slo_submitted": 0,
+            "slo_hedged": 0,
+            "slo_infeasible_dispatched": 0,
         }
-        # Lazy import to avoid an import cycle: portfolio depends on driver.
+        # Lazy import to avoid an import cycle: portfolio + contract
+        # both depend on driver, so we resolve them on first access.
         self._portfolio_optimizer: Any | None = None
+        self._slo_compiler: Any | None = None
+
+        # Compliance ledger for SLO tickets. Optional; if neither
+        # `ledger` nor `compliance_path` is supplied, the driver lazily
+        # creates an in-memory ledger the first time an SLO ticket
+        # completes.
+        self._ledger = ledger
+        self._compliance_path = (
+            Path(compliance_path) if compliance_path else None
+        )
 
     @property
     def portfolio(self) -> Any:
@@ -367,6 +390,22 @@ class RuntimeDriver:
             from agi.portfolio import PortfolioOptimizer
             self._portfolio_optimizer = PortfolioOptimizer(self.estimator)
         return self._portfolio_optimizer
+
+    @property
+    def slo_compiler(self) -> Any:
+        """Lazy `SLOCompiler` bound to this driver's estimator."""
+        if self._slo_compiler is None:
+            from agi.contract import SLOCompiler
+            self._slo_compiler = SLOCompiler(self.estimator)
+        return self._slo_compiler
+
+    @property
+    def ledger(self) -> Any:
+        """Lazy `ComplianceLedger`. Persists to `compliance_path` if set."""
+        if self._ledger is None:
+            from agi.contract import ComplianceLedger
+            self._ledger = ComplianceLedger(self._compliance_path)
+        return self._ledger
 
     # --- public API -----------------------------------------------
 
@@ -538,6 +577,113 @@ class RuntimeDriver:
             self._stats["portfolio_skipped"] += plan.skipped_count
         return tickets, plan
 
+    def submit_with_slo(
+        self,
+        request: TicketRequest,
+        slo: Any,
+        *,
+        dispatch_infeasible: bool = True,
+    ) -> Any:
+        """Submit a ticket against a declarative `TicketSLO`.
+
+        The driver compiles the SLO into a concrete plan against the
+        live preflight forecasts, dispatches one (STRAT_SINGLE) or
+        many (STRAT_HEDGE) child tickets, and returns an `SLOTicket`
+        handle that races the children and records compliance.
+
+        If the compiler reports `feasible=False` and
+        `dispatch_infeasible=True` (the default), the driver still
+        dispatches the best-effort plan; the compliance record will
+        carry `slo_status=infeasible`/`breached`. A coordination engine
+        that prefers to bounce infeasible work back to the planner sets
+        `dispatch_infeasible=False` — the SLOTicket is then returned
+        already-terminated with `status=REJECTED`.
+
+        Returns an `SLOTicket`. Use `.result()` for a blocking call,
+        `.stream()` for live events, `.cancel()` to abort.
+        """
+        from agi.contract import (
+            STRAT_HEDGE,
+            SLOTicket,
+            SLO_INFEASIBLE,
+        )
+
+        plan = self.slo_compiler.compile(request, slo)
+
+        with self._lock:
+            self._stats["slo_submitted"] += 1
+            if plan.strategy == STRAT_HEDGE:
+                self._stats["slo_hedged"] += 1
+            if not plan.feasible and dispatch_infeasible:
+                self._stats["slo_infeasible_dispatched"] += 1
+
+        if not plan.feasible and not dispatch_infeasible:
+            # Return a pre-finalised SLOTicket marking the infeasible
+            # plan as rejected before any child is dispatched.
+            return _make_rejected_slo_ticket(request, slo, plan, self.ledger)
+
+        # Dispatch children: one TicketRequest per candidate, with the
+        # model locked (allow_downgrade=False so the SLO commitment isn't
+        # silently retraded). Per-child budget is the candidate's forecast
+        # plus a small cushion, so a runaway child trips its own session
+        # ceiling and stops bleeding cost into the hedge total.
+        children: list[Ticket] = []
+        for cand in plan.candidates:
+            cfg = request.config or SessionConfig()
+            cfg = _clone_config(cfg, model=cand.model)
+            child_budget = (
+                request.budget_usd
+                if request.budget_usd is not None
+                else max(cand.estimated_cost_usd * 2.5, 0.05)
+            )
+            child_req = TicketRequest(
+                intent=request.intent,
+                tenant_id=request.tenant_id,
+                budget_usd=child_budget,
+                deadline_ts=request.deadline_ts,
+                config=cfg,
+                allow_downgrade=False,
+                namespace=request.namespace,
+                metadata={
+                    **request.metadata,
+                    "slo_strategy": plan.strategy,
+                    "slo_candidate_model": cand.model,
+                },
+            )
+            children.append(self.submit(child_req))
+
+        return SLOTicket(request, slo, plan, children, ledger=self.ledger)
+
+    def frontier_for_slo(
+        self,
+        request: TicketRequest,
+        slo: Any,
+        *,
+        budgets: list[float],
+    ) -> list[dict[str, Any]]:
+        """Pareto curve: for each candidate budget, what does the SLO
+        plan look like? Operators chart this to size `max_cost_usd`."""
+        return self.slo_compiler.frontier(request, slo, budgets=budgets)
+
+    def compliance_report(self) -> dict[str, Any]:
+        """Roll up the compliance ledger: SLO hit rate, breaches by kind,
+        total refund-eligible cost. The coordination engine's billing
+        and SLO dashboards read from this."""
+        if self._ledger is None and self._compliance_path is None:
+            return {
+                "total": 0,
+                "compliant": 0,
+                "breached": 0,
+                "infeasible": 0,
+                "failed": 0,
+                "compliance_rate": 0.0,
+                "total_cost_usd": 0.0,
+                "total_refund_usd": 0.0,
+                "by_breach": {},
+                "by_status": {},
+            }
+        return self.ledger.summary()
+
     def get_ticket(self, ticket_id: str) -> Ticket | None:
         with self._lock:
             return self._tickets.get(ticket_id)
@@ -708,3 +854,106 @@ def _clone_config(cfg: SessionConfig, **overrides: Any) -> SessionConfig:
     same-typed copy."""
     data = {**cfg.__dict__, **overrides}
     return type(cfg)(**data)
+
+
+def _make_rejected_slo_ticket(
+    request: TicketRequest,
+    slo: Any,
+    plan: Any,
+    ledger: Any,
+) -> Any:
+    """Build a pre-finalised SLOTicket reporting an up-front rejection.
+
+    Used when the SLO compile reports an infeasible plan and the
+    caller requested `dispatch_infeasible=False`. The returned ticket
+    is already `done` with a synthetic Receipt; its compliance record
+    is written to the ledger so the dashboard reflects the rejection.
+    """
+    from agi.contract import (
+        SLO_INFEASIBLE,
+        SLOReceipt,
+        SLOTicket,
+        evaluate_compliance,
+    )
+
+    slo_id = "slo_" + uuid.uuid4().hex[:10]
+    now = time.time()
+    receipt = SLOReceipt(
+        slo_ticket_id=slo_id,
+        request_intent=request.intent,
+        slo=slo,
+        plan=plan,
+        status=REJECTED,
+        slo_status=SLO_INFEASIBLE,
+        breaches=["infeasible_plan"],
+        refund_usd=0.0,
+        winner_model=None,
+        winner_ticket_id=None,
+        final_text=None,
+        error=plan.reason or "infeasible plan",
+        actual_cost_usd=0.0,
+        actual_duration_s=0.0,
+        children=[],
+        submitted_ts=now,
+        completed_ts=now,
+    )
+    # Build a real SLOTicket but skip the race thread by giving it a
+    # synthetic single child that's already terminated. Simpler path:
+    # subclass SLOTicket with no children. SLOTicket requires children,
+    # so we'd rather not. Instead, return a thin shim with the same
+    # public surface.
+    if ledger is not None:
+        try:
+            compliance = evaluate_compliance(
+                slo,
+                plan,
+                actual_cost_usd=0.0,
+                actual_duration_s=0.0,
+                success=False,
+                ticket_id=slo_id,
+                chosen_model=None,
+            )
+            ledger.record(compliance)
+        except Exception:
+            pass
+
+    return _PreRejectedSLOTicket(slo_id, receipt)
+
+
+class _PreRejectedSLOTicket:
+    """Already-terminal SLOTicket for up-front infeasibility rejections.
+
+    Mirrors enough of SLOTicket's public surface for a coordination
+    engine to handle it identically: `.id`, `.status`, `.done`,
+    `.stream()`, `.result()`, `.cancel()`.
+    """
+
+    def __init__(self, slo_id: str, receipt: Any) -> None:
+        self.id = slo_id
+        self.children: list[Ticket] = []
+        self._receipt = receipt
+
+    @property
+    def status(self) -> str:
+        return self._receipt.status
+
+    @property
+    def done(self) -> bool:
+        return True
+
+    @property
+    def slo(self) -> Any:
+        return self._receipt.slo
+
+    @property
+    def plan(self) -> Any:
+        return self._receipt.plan
+
+    def stream(self, *, timeout: float | None = None):
+        return iter(())
+
+    def result(self, *, timeout: float | None = None) -> Any:
+        return self._receipt
+
+    def cancel(self) -> None:
+        return None
