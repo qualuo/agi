@@ -367,6 +367,12 @@ class RuntimeDriver:
         # both depend on driver, so we resolve them on first access.
         self._portfolio_optimizer: Any | None = None
         self._slo_compiler: Any | None = None
+        self._oracle: Any | None = None
+        # When True, every completed ticket also gets fed into the
+        # oracle's rolling buffer so `auto_tune` has data even after
+        # tickets fall out of memory. Defaults to True — cheap, and
+        # the buffer caps itself via `window=` on consumers.
+        self._oracle_record_completed: bool = True
 
         # Compliance ledger for SLO tickets. Optional; if neither
         # `ledger` nor `compliance_path` is supplied, the driver lazily
@@ -406,6 +412,34 @@ class RuntimeDriver:
             from agi.contract import ComplianceLedger
             self._ledger = ComplianceLedger(self._compliance_path)
         return self._ledger
+
+    @property
+    def oracle(self) -> Any:
+        """Lazy `TicketOracle` for counterfactual replay + auto-tuning.
+
+        Investors and coordination engines can ask:
+
+          driver.oracle.recommend()   # what knobs would have saved most?
+          driver.oracle.what_if(cost_multiplier=1.2)   # provider hike
+          driver.oracle.auto_tune(driver)              # apply the rec
+
+        The oracle is bound to this driver's `PreflightEstimator` so
+        alt-model forecasts share the same calibration that produced
+        the original receipts.
+        """
+        if self._oracle is None:
+            from agi.oracle import PolicyKnobs, TicketOracle
+            baseline = PolicyKnobs(
+                min_p_success=getattr(self.advisor, "_min_p_success", 0.55),
+                max_cost_per_turn_usd=getattr(
+                    self.advisor, "_max_cost_per_turn_usd", None
+                ),
+                allow_downgrade=True,
+            )
+            self._oracle = TicketOracle(
+                estimator=self.estimator, baseline_knobs=baseline,
+            )
+        return self._oracle
 
     # --- public API -----------------------------------------------
 
@@ -834,6 +868,17 @@ class RuntimeDriver:
         self._terminate_ticket(ticket, FAILED, error=error, stat_key="failed")
 
     def _persist_receipt(self, receipt: Receipt) -> None:
+        # Mirror every receipt into the oracle's rolling buffer so
+        # auto-tune still has data after tickets are evicted from
+        # the in-memory `self._tickets` map. We touch `self._oracle`
+        # directly (not the lazy property) so we don't construct it
+        # on first persistence — the property remains the public
+        # construction point.
+        if self._oracle_record_completed and self._oracle is not None:
+            try:
+                self._oracle.record(receipt)
+            except Exception:
+                pass
         if self.receipts_path is None:
             return
         try:

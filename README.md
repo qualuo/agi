@@ -32,6 +32,7 @@ agi/                # runtime + agent + reference coordinator
   evolve.py         # EvolutionEngine — closed-loop self-improvement over strategies
   contract.py       # TicketSLO + SLOCompiler + hedged execution + ComplianceLedger
   driver.py         # RuntimeDriver — single entry point with portfolio + SLO surfaces
+  oracle.py         # TicketOracle — counterfactual receipt replay + admission auto-tune
   portfolio.py      # PortfolioOptimizer — fixed-budget allocation across many tickets
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
@@ -748,6 +749,70 @@ This is the line between "we sell a managed AI service" and "we operate
 a managed AI business that defends its own gross margin." A coordination
 engine plugs the economist in once and gets a self-policing marketplace
 plus a stress-test workbench for the operator.
+
+### TicketOracle — counterfactual replay + admission auto-tuner
+
+The economist defends margins at the market layer (markup, pause,
+budget). `TicketOracle` defends them one level down: the admission
+policy itself (`min_p_success`, `max_cost_per_turn_usd`,
+`allow_downgrade`). Every receipt the driver writes carries a full
+decision trace — estimate, admission verdict, downgrade, route,
+dispatch, complete — and the oracle replays those traces under
+alternative knob sets to answer:
+
+  > Given the runs we already paid for, which admission knobs would
+  > have saved the most money while preserving our hit rate?
+
+```python
+from agi import PolicyKnobs
+
+# Already lazily attached on every RuntimeDriver.
+oracle = driver.oracle
+
+# Counterfactual: what would tighter knobs have done over the last 500 tickets?
+report = oracle.replay(
+    driver.tickets(),
+    PolicyKnobs(min_p_success=0.65, max_cost_per_turn_usd=0.10),
+)
+report.projected_cost_savings_usd       # delta vs baseline
+report.alt_success_rate                  # hit rate under the new knobs
+report.verdict_changes                   # "ADMIT->REJECT": 12, "ADMIT->DOWNGRADE": 5
+
+# Recommend: grid-search the knob space and surface the best Pareto point.
+rec = oracle.recommend(window=500)
+print(rec.summary)                       # one-line, ChatOps-postable
+print(rec.knobs.to_dict())
+
+# What-if: project a 25% upstream price hike across the same population.
+wi = oracle.what_if(cost_multiplier=1.25)
+wi.projected_cost_delta_usd              # quarter-over-quarter exposure
+
+# Auto-tune: apply the recommendation back to the live AdmissionAdvisor.
+applied = oracle.auto_tune(driver, min_savings_usd=10.0, window=500)
+# advisor._min_p_success and ._max_cost_per_turn_usd now reflect the rec.
+```
+
+The oracle does **not** re-run the LLM — counterfactuals are
+deterministic and free, built from the durable `Receipt.decisions`
+trace plus the live `PreflightEstimator` for alt-model branches.
+That keeps investor demos and audit replays milliseconds, not
+dollars. For ADMITted branches the runtime actually ran, replay uses
+the *observed* outcome; for the alt-only branches (REJECT / DEFER /
+DOWNGRADE) it falls back to the estimator's forecast.
+
+A coordination engine wires this once and gets:
+
+- **Provable counterfactuals** — every "we would have saved $X" claim
+  is backed by replayable receipts.
+- **Self-tuning admission** — the longer the runtime runs, the
+  cheaper its admission policy becomes for the same hit rate.
+- **Pre-emptive what-ifs** — model the impact of upstream price
+  shocks or planned policy changes against the actual workload
+  before committing.
+
+See `examples/oracle_demo.py` for the four-scene story: historical
+workload → oracle recommends → 25% price-shock what-if → auto-tune
+& verify the live advisor's new knobs.
 
 ## HTTP / SSE surface
 

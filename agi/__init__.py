@@ -161,6 +161,16 @@ from agi.policy import (
     RoutingDecision,
     recommend_with_policy,
 )
+from agi.oracle import (
+    DEFAULT_COST_CAP_GRID,
+    DEFAULT_P_SUCCESS_GRID,
+    CounterfactualReport,
+    PolicyKnobs,
+    Recommendation,
+    TicketOracle,
+    TicketReplay,
+    WhatIfReport,
+)
 from agi.preflight import (
     ADMIT,
     DEFER,
@@ -395,4 +405,13 @@ __all__ = [
     "SEV_WARN",
     "SimulationResult",
     "TicketEconomist",
+    # --- TicketOracle: counterfactual replay + policy auto-tuner ---
+    "CounterfactualReport",
+    "DEFAULT_COST_CAP_GRID",
+    "DEFAULT_P_SUCCESS_GRID",
+    "PolicyKnobs",
+    "Recommendation",
+    "TicketOracle",
+    "TicketReplay",
+    "WhatIfReport",
 ]
