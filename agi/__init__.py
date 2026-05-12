@@ -100,6 +100,15 @@ from agi.pool import (
     RuntimeNode,
     RuntimePool,
 )
+from agi.portfolio import (
+    DEFAULT_CANDIDATE_MODELS,
+    SKIP_MODEL,
+    FrontierPoint,
+    PortfolioAllocation,
+    PortfolioCandidate,
+    PortfolioOptimizer,
+    PortfolioPlan,
+)
 from agi.protocol import PROTOCOL_VERSION, CoordinationProtocol, JsonRpcError
 from agi.reflection import Reflector, ReflectionResult
 from agi.runtime import Runtime, Session, SessionConfig, SessionState
@@ -173,6 +182,13 @@ __all__ = [
     "PolicyManager",
     "PolicyRouter",
     "PoolDispatch",
+    "PortfolioAllocation",
+    "PortfolioCandidate",
+    "PortfolioOptimizer",
+    "PortfolioPlan",
+    "FrontierPoint",
+    "DEFAULT_CANDIDATE_MODELS",
+    "SKIP_MODEL",
     "PreflightEstimator",
     "promote_skill",
     "PROTOCOL_VERSION",

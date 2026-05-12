@@ -493,6 +493,38 @@ See `examples/driver_multi_tenant_demo.py` for the full demo: two
 tenants, ten tickets, automatic model downgrade, hard per-ticket
 budgets, and a fleet rollup at the end.
 
+### Portfolio submission — fixed budget across many tickets
+
+`RuntimeDriver.submit_portfolio` solves a different problem: you have N
+tickets and **one shared budget**. Single-ticket admission is local
+("can this one ticket afford to run?"); a portfolio decision is global
+("which subset of these tickets, on which models, maximizes total
+expected successes within $B?").
+
+```python
+requests = [TicketRequest(intent=t) for t in tasks]
+tickets, plan = driver.submit_portfolio(
+    requests,
+    total_budget_usd=0.50,
+    value_weights=priorities,    # weight each task's expected success
+)
+
+# `plan` is a JSON-serializable PortfolioPlan:
+#   - one PortfolioAllocation per request with the chosen model
+#     (or "skip" when no allocation is worth the marginal dollar)
+#   - expected_cost_usd, expected_value, utilization
+#   - `method` ∈ {"dp", "greedy"}; DP is exact, greedy is the fallback
+#     for very large portfolios.
+```
+
+`driver.portfolio.frontier(requests, budgets=[0.05, 0.25, 1.00, ...])`
+returns the budget → expected-value Pareto curve so operators can see
+where the next dollar stops paying off.
+
+See `examples/portfolio_demo.py` for an end-to-end walk-through: ten
+tasks of varying priority, three budget tiers, a frontier curve, and a
+live dispatch under shared accounting.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
