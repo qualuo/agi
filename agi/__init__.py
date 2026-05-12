@@ -1,4 +1,10 @@
 from agi.agent import Agent
+from agi.autonomy import (
+    AutonomyEngine,
+    GoalQueue,
+    GoalProvider,
+    TickReport,
+)
 from agi.autoloop import (
     AutonomousLoop,
     AutonomousResult,
@@ -36,6 +42,23 @@ from agi.goalc import (
     llm_decomposer,
     parse_plan_json,
 )
+from agi.governance import (
+    AdmissionDecision,
+    GovernedRuntime,
+    PolicyError,
+    PolicyManager,
+    TenantLimits,
+    TenantUsage,
+)
+from agi.knowledge import (
+    Edge,
+    Fact,
+    GraphQuery,
+    KnowledgeGraph,
+    Node,
+    attach_to_bus,
+)
+from agi.mcp import McpServer, run_stdio
 from agi.memory import Memory
 from agi.persistence import SessionStore
 from agi.policy import (
@@ -62,10 +85,13 @@ from agi.world_model import Observation, WorldModel
 
 __all__ = [
     "Agent",
+    "AdmissionDecision",
     "Arm",
     "ArmPosterior",
     "AutonomousLoop",
     "AutonomousResult",
+    "AutonomyEngine",
+    "attach_to_bus",
     "CapabilityRecommendation",
     "CapabilityRecord",
     "CapabilityRegistry",
@@ -75,24 +101,35 @@ __all__ = [
     "CoordinationResult",
     "default_judge",
     "default_lesson_analyzer",
+    "Edge",
     "Event",
     "EventBus",
     "EvalItem",
     "EvalReport",
+    "Fact",
     "ForkOutcome",
     "ForkVariant",
     "Goal",
+    "GoalProvider",
+    "GoalQueue",
+    "GovernedRuntime",
+    "GraphQuery",
     "heuristic_decomposer",
     "IterationOutcome",
     "JsonRpcError",
+    "KnowledgeGraph",
     "label_aggregator",
     "llm_decomposer",
     "LlmDecomposerConfig",
+    "McpServer",
     "Memory",
+    "Node",
     "Observation",
     "parse_plan_json",
     "Plan",
     "PlanStep",
+    "PolicyError",
+    "PolicyManager",
     "PolicyRouter",
     "PoolDispatch",
     "promote_skill",
@@ -102,6 +139,7 @@ __all__ = [
     "ReflectionResult",
     "Reflector",
     "RoutingDecision",
+    "run_stdio",
     "Runtime",
     "RuntimeNode",
     "RuntimePool",
@@ -112,6 +150,9 @@ __all__ = [
     "SessionState",
     "SessionStore",
     "single_step_decomposer",
+    "TenantLimits",
+    "TenantUsage",
+    "TickReport",
     "Skill",
     "SkillCandidate",
     "SkillLibrary",

@@ -24,6 +24,10 @@ agi/                # runtime + agent + reference coordinator
   capabilities.py   # observed-performance routing — learn which roles win where
   policy.py         # PolicyRouter — Thompson-sampled bandit on top of capabilities
   selfeval.py       # SelfEvalBank — agent-mined regression suite + promotion gate
+  autonomy.py       # AutonomyEngine — continuous closed-loop self-improvement
+  knowledge.py      # KnowledgeGraph — typed nodes + relations + facts
+  governance.py     # multi-tenant budgets, quotas, rate limits, fair-share
+  mcp.py            # Model Context Protocol server: drive from Claude Desktop/Code
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
   reflection.py     # per-task lessons-to-memory loop (medium-timescale learning)
@@ -45,7 +49,7 @@ learner/            # learning track — small open base + LoRA loop
 evals/
   tasks.jsonl       # eval tasks (math, file ops, recall, search)
   run.py            # eval runner
-tests/              # 230+ unit tests, all run without an API key
+tests/              # 285+ unit tests, all run without an API key
 ARCHITECTURE.md     # full design — read this for direction
 PLAN.md             # stage roadmap
 ```
@@ -232,6 +236,90 @@ cheaper, and harder-to-break it gets."
 
 See `examples/runtime_engine_demo.py` for a single narrated run that
 exercises all five.
+
+### Four platform layers for production deployments
+
+- **`AutonomyEngine`** (`agi/autonomy.py`) — the *outer* loop. Pulls
+  goals from a queue (anything that returns the next `Goal` or `None`),
+  pursues each through `AutonomousLoop`, records outcomes to the
+  `CapabilityRegistry`, mines skills from successes, gates promotion on
+  `SelfEvalBank` regression, and writes new eval items back to the bank
+  so the regression suite *grows from real use*. Run it as a heartbeat
+  and the system measurably improves between invocations.
+
+  ```python
+  from agi.autonomy import AutonomyEngine, GoalQueue
+
+  queue = GoalQueue()
+  queue.push(Goal(intent="…", acceptance=lambda t: "42" in t))
+  engine = AutonomyEngine(
+      rt, Coordinator(rt),
+      goal_provider=queue.as_provider(),
+      eval_bank=bank,
+      eval_runner=bank.runtime_runner(rt),  # gates skill promotion
+      capabilities=caps,
+      max_iterations=3, max_cost_per_tick_usd=0.50,
+  )
+  engine.run_forever(max_ticks=100, heartbeat_seconds=5.0, idle_grace_ticks=10)
+  ```
+
+  Emits `autonomy.tick_*`, `autonomy.goal_*`, `autonomy.skill_promoted`,
+  `autonomy.skill_rejected`, `autonomy.evalbank_updated`, `autonomy.idle`.
+
+- **`KnowledgeGraph`** (`agi/knowledge.py`) — typed nodes (`file`,
+  `url`, `session`, `skill`, `project`, `user`, …) + directed relations
+  (`depends_on`, `wrote`, `fetched`, `spawned`, …) + timestamped facts.
+  `attach_to_bus(kg, runtime.bus)` makes the graph grow automatically
+  from agent activity. `kg.neighborhood(node, hops=N)` and
+  `kg.context_for(kind, key)` give a coordinator structured context
+  to inject into the next prompt — real semantic memory, not keyword
+  search.
+
+  ```python
+  from agi.knowledge import KnowledgeGraph, attach_to_bus
+
+  kg = KnowledgeGraph()
+  attach_to_bus(kg, rt.bus)
+  ctx = kg.context_for("project", "agi", hops=2)  # ground next prompt
+  ```
+
+- **`PolicyManager` / `GovernedRuntime`** (`agi/governance.py`) — hard
+  multi-tenant isolation. Per-tenant daily / hourly / lifetime cost
+  caps, max concurrent sessions, prompts-per-minute / per-day rate
+  limits, weighted fair-share scheduling across competing tenants, and
+  an append-only JSONL audit log of every admission decision. The
+  difference between a demo and a SaaS deployment.
+
+  ```python
+  from agi.governance import GovernedRuntime, PolicyManager, TenantLimits
+
+  pm = PolicyManager(audit_path="/var/log/agi-audit.jsonl")
+  pm.set_limits(TenantLimits("acme",
+                             daily_cost_usd=10.0,
+                             max_concurrent_sessions=5,
+                             max_prompts_per_minute=60))
+  gr = GovernedRuntime(rt, pm)
+  sid = gr.create_session("acme", SessionConfig())
+  text = gr.chat("acme", sid, "…")
+  ```
+
+- **`McpServer`** (`agi/mcp.py`) — exposes the Runtime as a Model
+  Context Protocol server over stdio JSON-RPC. Claude Desktop, Claude
+  Code, or any MCP-aware client connects with one config line and gets
+  `agi.create_session`, `agi.chat`, `agi.run_goal`, `agi.recall`,
+  `agi.autonomy.tick`, `agi.save_skill`, plus the live session/event
+  resource feed. Distribution path: this runtime drops into any MCP
+  host.
+
+  ```python
+  from agi.mcp import run_stdio
+  run_stdio(rt, coordinator=coord, knowledge=kg, autonomy_engine=engine)
+  ```
+
+See `examples/agi_autonomy_demo.py` for an end-to-end run that wires
+the autonomy engine, knowledge graph, capability registry, policy
+router, self-eval bank, and policy manager together — no API key
+needed.
 
 ## Runtime API — for a coordination engine
 
