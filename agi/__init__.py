@@ -76,6 +76,13 @@ from agi.pool import (
 from agi.protocol import PROTOCOL_VERSION, CoordinationProtocol, JsonRpcError
 from agi.reflection import Reflector, ReflectionResult
 from agi.runtime import Runtime, Session, SessionConfig, SessionState
+from agi.scheduler import (
+    CycleError,
+    ParallelScheduler,
+    PlanExecution,
+    RetryPolicy,
+    SchedulerConfig,
+)
 from agi.selfeval import EvalItem, EvalReport, SelfEvalBank
 from agi.skillmine import SkillCandidate, mine_skills, propose_skill_from_cluster
 from agi.skills import Skill, SkillLibrary
@@ -136,9 +143,14 @@ __all__ = [
     "PROTOCOL_VERSION",
     "RaceResult",
     "recommend_with_policy",
+    "ParallelScheduler",
+    "PlanExecution",
     "ReflectionResult",
     "Reflector",
+    "RetryPolicy",
     "RoutingDecision",
+    "SchedulerConfig",
+    "CycleError",
     "run_stdio",
     "Runtime",
     "RuntimeNode",

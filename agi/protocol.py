@@ -47,8 +47,15 @@ import time
 from dataclasses import asdict, is_dataclass
 from typing import IO, Any, Callable
 
+from agi.coordinator import Plan, PlanStep
 from agi.events import Event
 from agi.runtime import Runtime, SessionConfig
+from agi.scheduler import (
+    CycleError,
+    ParallelScheduler,
+    RetryPolicy,
+    SchedulerConfig,
+)
 from agi.skills import Skill
 from agi.tasks import Task, TaskQueue, TaskRunner, submit_task
 
@@ -117,10 +124,12 @@ class CoordinationProtocol:
         *,
         queue: TaskQueue | None = None,
         runner: TaskRunner | None = None,
+        scheduler: ParallelScheduler | None = None,
     ) -> None:
         self.runtime = runtime
         self.queue = queue or TaskQueue()
         self.runner = runner or TaskRunner(runtime, self.queue)
+        self.scheduler = scheduler or ParallelScheduler(runtime)
         self._write_lock = threading.Lock()
         self._writer: IO[str] | None = None
         self._subscribed = False
@@ -145,6 +154,11 @@ class CoordinationProtocol:
             "tasks.submit": self._m_tasks_submit,
             "tasks.get": self._m_tasks_get,
             "tasks.drain": self._m_tasks_drain,
+            "plans.submit": self._m_plans_submit,
+            "plans.run": self._m_plans_run,
+            "plans.get": self._m_plans_get,
+            "plans.list": self._m_plans_list,
+            "plans.cancel": self._m_plans_cancel,
             "skills.save": self._m_skills_save,
             "tools.synthesize": self._m_tools_synthesize,
             "events.subscribe": self._m_events_subscribe,
@@ -317,6 +331,60 @@ class CoordinationProtocol:
         executed = self.runner.run_until_empty(max_ticks=max_ticks)
         return {"executed": executed}
 
+    def _m_plans_submit(
+        self,
+        *,
+        steps: list[dict[str, Any]],
+        rationale: str = "",
+        budget_usd: float | None = None,
+        deadline_ts: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        plan = _plan_from_dicts(steps, rationale=rationale)
+        try:
+            eid = self.scheduler.submit(
+                plan,
+                budget_usd=budget_usd,
+                deadline_ts=deadline_ts,
+                metadata=metadata,
+            )
+        except CycleError as ce:
+            raise JsonRpcError(INVALID_PARAMS, f"invalid plan: {ce}") from ce
+        return {"execution_id": eid}
+
+    def _m_plans_run(
+        self,
+        *,
+        steps: list[dict[str, Any]],
+        rationale: str = "",
+        budget_usd: float | None = None,
+        deadline_ts: float | None = None,
+        metadata: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        plan = _plan_from_dicts(steps, rationale=rationale)
+        try:
+            eid = self.scheduler.submit(
+                plan,
+                budget_usd=budget_usd,
+                deadline_ts=deadline_ts,
+                metadata=metadata,
+            )
+        except CycleError as ce:
+            raise JsonRpcError(INVALID_PARAMS, f"invalid plan: {ce}") from ce
+        execution = self.scheduler.wait(eid, timeout=timeout)
+        return execution.to_dict()
+
+    def _m_plans_get(self, *, execution_id: str) -> dict[str, Any]:
+        return self.scheduler.get(execution_id).to_dict()
+
+    def _m_plans_list(self) -> list[dict[str, Any]]:
+        return self.scheduler.list_executions()
+
+    def _m_plans_cancel(self, *, execution_id: str) -> dict[str, Any]:
+        ok = self.scheduler.cancel(execution_id)
+        return {"ok": ok}
+
     def _m_skills_save(self, *, name: str, description: str, body: str,
                        tags: list[str] | None = None) -> dict[str, Any]:
         self.runtime.save_skill(Skill(name=name, description=description, body=body, tags=tags or []))
@@ -382,3 +450,34 @@ class CoordinationProtocol:
         return [e.to_dict() for e in self.runtime.events(
             session_id=session_id, kind=kind, since_ts=since_ts, limit=limit
         )]
+
+
+def _plan_from_dicts(steps: list[dict[str, Any]], rationale: str = "") -> Plan:
+    """Build a Plan from JSON-ish step dicts. Accepts the JSON-RPC payload
+    shape directly, with friendly errors for missing fields."""
+    if not isinstance(steps, list) or not steps:
+        raise JsonRpcError(INVALID_PARAMS, "steps must be a non-empty list")
+    out: list[PlanStep] = []
+    for i, s in enumerate(steps):
+        if not isinstance(s, dict):
+            raise JsonRpcError(INVALID_PARAMS, f"step[{i}] must be an object")
+        sid = s.get("id")
+        prompt = s.get("prompt")
+        if not isinstance(sid, str) or not sid:
+            raise JsonRpcError(INVALID_PARAMS, f"step[{i}].id required")
+        if not isinstance(prompt, str) or not prompt:
+            raise JsonRpcError(INVALID_PARAMS, f"step[{i}].prompt required")
+        out.append(PlanStep(
+            id=sid,
+            prompt=prompt,
+            role=s.get("role", "executor"),
+            model=s.get("model"),
+            depends_on=list(s.get("depends_on") or []),
+            use_skills=bool(s.get("use_skills", True)),
+            priority=int(s.get("priority", 0)),
+            namespace=s.get("namespace"),
+            metadata=dict(s.get("metadata") or {}),
+        ))
+    return Plan(steps=out, rationale=rationale)
+
+

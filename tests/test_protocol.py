@@ -156,6 +156,61 @@ class TestProtocolEvents(unittest.TestCase):
         self.assertTrue(ack[0]["result"]["ok"])
 
 
+class TestProtocolPlans(unittest.TestCase):
+    """plans.* methods drive the ParallelScheduler over JSON-RPC."""
+
+    def test_plans_run_returns_dag_outcome(self):
+        proto = CoordinationProtocol(_make_runtime())
+        out = _exchange(proto, [{
+            "jsonrpc": "2.0", "id": 1, "method": "plans.run",
+            "params": {
+                "steps": [
+                    {"id": "a", "prompt": "first"},
+                    {"id": "b", "prompt": "second", "depends_on": ["a"]},
+                ],
+            },
+        }])
+        replies = [m for m in out if m.get("id") == 1]
+        self.assertEqual(len(replies), 1)
+        result = replies[0]["result"]
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(result["step_count"], 2)
+        self.assertIn("a", result["outcomes"])
+        self.assertIn("b", result["outcomes"])
+
+    def test_plans_submit_and_get(self):
+        proto = CoordinationProtocol(_make_runtime())
+        out = _exchange(proto, [
+            {"jsonrpc": "2.0", "id": 1, "method": "plans.submit",
+             "params": {"steps": [{"id": "a", "prompt": "x"}]}},
+        ])
+        eid = [m for m in out if m.get("id") == 1][0]["result"]["execution_id"]
+        # Give the scheduler a moment to finish; then query.
+        import time as _t
+        _t.sleep(0.2)
+        out = _exchange(proto, [
+            {"jsonrpc": "2.0", "id": 2, "method": "plans.get",
+             "params": {"execution_id": eid}},
+        ])
+        snap = [m for m in out if m.get("id") == 2][0]["result"]
+        self.assertIn(snap["status"], ("done", "running", "queued"))
+
+    def test_plans_cycle_rejected(self):
+        proto = CoordinationProtocol(_make_runtime())
+        out = _exchange(proto, [{
+            "jsonrpc": "2.0", "id": 1, "method": "plans.run",
+            "params": {
+                "steps": [
+                    {"id": "a", "prompt": "A", "depends_on": ["b"]},
+                    {"id": "b", "prompt": "B", "depends_on": ["a"]},
+                ],
+            },
+        }])
+        errors = [m for m in out if m.get("id") == 1 and "error" in m]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["error"]["code"], INVALID_PARAMS)
+
+
 class TestProtocolNotifications(unittest.TestCase):
     def test_notification_no_id_no_response(self):
         proto = CoordinationProtocol(_make_runtime())
