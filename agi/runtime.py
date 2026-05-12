@@ -397,6 +397,9 @@ class Runtime:
         skills_dir: str | Path | None = None,
         session_store=None,
         max_concurrent_sessions: int | None = None,
+        estimator: Any | None = None,
+        admission_advisor: Any | None = None,
+        attach_estimator: bool = True,
     ) -> None:
         self.memory = memory or Memory()
         self.skills = skills or SkillLibrary(path=skills_dir)
@@ -428,6 +431,22 @@ class Runtime:
         }
         self.bus.subscribe(self._record_metric)
 
+        # Preflight estimator: predicts cost/duration/success for the next
+        # chat turn so a coordination engine can decide whether (and how)
+        # to dispatch. Created lazily by default — coordinators that
+        # want to share an estimator across runtimes inject their own.
+        if estimator is None:
+            from agi.preflight import PreflightEstimator
+            estimator = PreflightEstimator()
+        self.estimator = estimator
+        if admission_advisor is None:
+            from agi.preflight import AdmissionAdvisor
+            admission_advisor = AdmissionAdvisor(self.estimator, runtime=self)
+        self.admission_advisor = admission_advisor
+        # Self-train: every CHAT_COMPLETED feeds the estimator.
+        if attach_estimator and hasattr(self.estimator, "attach"):
+            self._estimator_sub_id = self.estimator.attach(self)
+
     # --- discovery ---------------------------------------------------
 
     def capabilities(self) -> dict[str, Any]:
@@ -451,6 +470,7 @@ class Runtime:
             "active_sessions": sum(1 for s in self._sessions.values() if not s.state.ended),
             "total_sessions": len(self._sessions),
             "memory_notes": len(self.memory.all()),
+            "preflight": self.estimator.stats() if hasattr(self.estimator, "stats") else {},
         }
 
     # --- session lifecycle ------------------------------------------
@@ -576,6 +596,49 @@ class Runtime:
     def chat(self, session_id: str, user_input: str) -> str:
         session = self._require(session_id)
         return session.chat(user_input)
+
+    # --- preflight / admission (coordination surface) ---------------
+
+    def estimate(
+        self,
+        prompt: str,
+        config: SessionConfig | None = None,
+        *,
+        session_id: str | None = None,
+    ):
+        """Forecast cost / duration / p_success for a chat turn.
+
+        If `session_id` is given and `config` is None, the session's
+        own config is used so the estimate reflects what would
+        actually run. The returned `Estimate` exposes p10/p90 bands
+        plus a confidence flag — a coordinator that consumes this
+        can implement risk-aware dispatch in a few lines."""
+        if config is None and session_id is not None:
+            session = self._sessions.get(session_id)
+            if session is not None:
+                config = session.state.config
+        return self.estimator.estimate(prompt, config)
+
+    def advise(
+        self,
+        prompt: str,
+        *,
+        config: SessionConfig | None = None,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+    ):
+        """One-call admission decision: ADMIT / DEFER / DOWNGRADE / REJECT.
+
+        Combines preflight estimate + (if wired) governance policy +
+        capacity. A coordination engine can use this as its sole
+        admission gate."""
+        if config is None and session_id is not None:
+            session = self._sessions.get(session_id)
+            if session is not None:
+                config = session.state.config
+        return self.admission_advisor.advise(
+            prompt=prompt, config=config, tenant_id=tenant_id,
+        )
 
     def cancel(self, session_id: str) -> None:
         self._require(session_id).cancel()

@@ -68,6 +68,17 @@ from agi.policy import (
     RoutingDecision,
     recommend_with_policy,
 )
+from agi.preflight import (
+    ADMIT,
+    DEFER,
+    DOWNGRADE,
+    REJECT,
+    AdmissionAdvice,
+    AdmissionAdvisor,
+    CostBreakdown,
+    Estimate,
+    PreflightEstimator,
+)
 from agi.pool import (
     PoolDispatch,
     RuntimeNode,
@@ -91,7 +102,10 @@ from agi.toolsynth import SynthesizedTool, ToolSynthError, ToolSynthRegistry
 from agi.world_model import Observation, WorldModel
 
 __all__ = [
+    "ADMIT",
     "Agent",
+    "AdmissionAdvice",
+    "AdmissionAdvisor",
     "AdmissionDecision",
     "Arm",
     "ArmPosterior",
@@ -106,9 +120,13 @@ __all__ = [
     "CoordinationProtocol",
     "Coordinator",
     "CoordinationResult",
+    "CostBreakdown",
+    "DEFER",
+    "DOWNGRADE",
     "default_judge",
     "default_lesson_analyzer",
     "Edge",
+    "Estimate",
     "Event",
     "EventBus",
     "EvalItem",
@@ -139,9 +157,11 @@ __all__ = [
     "PolicyManager",
     "PolicyRouter",
     "PoolDispatch",
+    "PreflightEstimator",
     "promote_skill",
     "PROTOCOL_VERSION",
     "RaceResult",
+    "REJECT",
     "recommend_with_policy",
     "ParallelScheduler",
     "PlanExecution",
