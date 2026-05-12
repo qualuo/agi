@@ -1,4 +1,11 @@
 from agi.agent import Agent
+from agi.attest import (
+    AttestationLedger,
+    AttestedReceipt,
+    GENESIS_HASH,
+    LedgerCorrupted,
+    RuntimeAttestor,
+)
 from agi.autonomy import (
     AutonomyEngine,
     GoalQueue,
@@ -268,6 +275,8 @@ __all__ = [
     "AdmissionDecision",
     "Arm",
     "ArmPosterior",
+    "AttestationLedger",
+    "AttestedReceipt",
     "AutonomousLoop",
     "AutonomousResult",
     "AutonomyEngine",
@@ -293,6 +302,7 @@ __all__ = [
     "Fact",
     "ForkOutcome",
     "ForkVariant",
+    "GENESIS_HASH",
     "Goal",
     "GoalProvider",
     "GoalQueue",
@@ -304,6 +314,7 @@ __all__ = [
     "KnowledgeGraph",
     "label_aggregator",
     "llm_decomposer",
+    "LedgerCorrupted",
     "LlmDecomposerConfig",
     "McpServer",
     "Memory",
@@ -353,6 +364,7 @@ __all__ = [
     "CANCELLED",
     "run_stdio",
     "Runtime",
+    "RuntimeAttestor",
     "RuntimeNode",
     "RuntimePool",
     "SelfEvalBank",

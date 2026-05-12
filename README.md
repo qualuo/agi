@@ -35,6 +35,7 @@ agi/                # runtime + agent + reference coordinator
   oracle.py         # TicketOracle — counterfactual receipt replay + admission auto-tune
   experiments.py    # ExperimentRunner — A/B experiments with guardrails (Bayesian decisions)
   portfolio.py      # PortfolioOptimizer — fixed-budget allocation across many tickets
+  attest.py         # AttestationLedger — tamper-evident, HMAC-signed receipt chain
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
