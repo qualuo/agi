@@ -16,6 +16,9 @@ agi/                # runtime + agent + reference coordinator
   server.py         # HTTP+SSE server exposing Runtime (stdlib only)
   agent.py          # streaming agent loop — adaptive thinking + tool dispatch
   coordinator.py    # reference Coordinator + Goal/Plan/PlanStep abstractions
+  autoloop.py       # AutonomousLoop — retry-with-lessons until goal accepted
+  fork.py           # SessionFork — race N variants, pick winner by critic
+  capabilities.py   # observed-performance routing — learn which roles win where
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
   reflection.py     # per-task lessons-to-memory loop (medium-timescale learning)
@@ -87,6 +90,61 @@ The Coordinator talks to the Runtime only through its public API
 (`create_session`, `chat`, `bus.subscribe`, `metrics`) — any other
 planner can use the same surface. See `examples/coordinator_e2e.py`
 for a full run including skill mining.
+
+### Three drivers ship on top of the Runtime
+
+These are coordination patterns shipped as small modules — a higher-level
+coordination engine composes them or rolls its own:
+
+- **`AutonomousLoop`** (`agi/autoloop.py`) — pursues a `Goal` across many
+  attempts. Each failed attempt distills a lesson that is prepended to the
+  next attempt's prompt; on success it mines a `SkillCandidate` from the
+  winning trajectory. Halts on success, budget exhaustion, deadline, or
+  iteration cap. Records every iteration to a `CapabilityRegistry` for
+  downstream routing.
+
+  ```python
+  from agi.autoloop import AutonomousLoop, promote_skill
+  from agi.capabilities import CapabilityRegistry
+
+  caps = CapabilityRegistry()
+  loop = AutonomousLoop(Coordinator(rt), max_iterations=4, capabilities=caps)
+  result = loop.pursue(Goal(intent="…", acceptance=lambda t: "42" in t, budget_usd=1.0))
+  if result.success and result.skill_candidate:
+      promote_skill(rt, result.skill_candidate)  # graduate into the skill library
+  ```
+
+- **`SessionFork`** (`agi/fork.py`) — races N `SessionConfig` variants of the
+  same prompt in parallel against the runtime's task queue and picks a
+  winner via a pluggable `judge` (default: critic score, then succeeded,
+  then cost). The cheapest way to lift pass rate on hard prompts.
+
+  ```python
+  from agi.fork import SessionFork, ForkVariant
+
+  fork = SessionFork(rt, max_workers=4)
+  race = fork.race("hard question", [
+      ForkVariant("careful", SessionConfig(effort="high", role="planner")),
+      ForkVariant("fast",    SessionConfig(effort="medium", role="executor")),
+      ForkVariant("opus",    SessionConfig(model="claude-opus-4-7", role="reviewer")),
+  ])
+  print(race.winner.variant.name, race.winner.result)
+  ```
+
+- **`CapabilityRegistry`** (`agi/capabilities.py`) — append-only JSONL store
+  of `(prompt_tokens, role, model, skills_used, success, cost, latency,
+  critic_score)`. `recommend(prompt, budget_usd=…)` returns the best
+  `(role, model)` bucket by similarity-weighted success rate, with a
+  budget penalty. A coordinator queries this *before* dispatching work
+  so each step picks the most-likely-to-succeed config.
+
+  ```python
+  rec = caps.recommend("compile this regex", budget_usd=0.05)
+  cfg = rec.to_session_config(base=SessionConfig(max_tokens=8000))
+  ```
+
+See `examples/agi_demo.py` for an end-to-end narrated run that wires
+all three together without an API key.
 
 ## Runtime API — for a coordination engine
 
@@ -173,6 +231,10 @@ The bus emits typed events. Coordinators pattern-match on `kind`:
 - `subagent.started` / `subagent.completed` — delegation
 - `tool.synthesized` — agent extended itself
 - `critic.scored` — gate fired with a confidence score
+- `autoloop.iteration_started` / `autoloop.iteration_completed`
+- `autoloop.completed` / `autoloop.failed` / `autoloop.budget_exhausted`
+- `autoloop.skill_promoted` — a winning trajectory graduated into the library
+- `fork.race_started` / `fork.race_completed`
 - `error` — including `CostCeilingExceeded` when budget runs out
 
 Subagent token usage rolls up into the parent session for honest accounting.
@@ -204,8 +266,8 @@ research vs. tractable engineering.
 
 ```sh
 python -m unittest discover tests
-# 131 tests across events, skills, toolsynth, runtime, server, persistence,
-# tasks, coordinator, skillmine, agent, learner
+# 165+ tests across events, skills, toolsynth, runtime, server, persistence,
+# tasks, coordinator, autoloop, fork, capabilities, skillmine, agent, learner
 ```
 
 All tests run without an API key; they exercise the runtime, sandbox, and

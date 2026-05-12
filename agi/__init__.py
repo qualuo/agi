@@ -1,4 +1,16 @@
 from agi.agent import Agent
+from agi.autoloop import (
+    AutonomousLoop,
+    AutonomousResult,
+    IterationOutcome,
+    default_lesson_analyzer,
+    promote_skill,
+)
+from agi.capabilities import (
+    CapabilityRecommendation,
+    CapabilityRecord,
+    CapabilityRegistry,
+)
 from agi.coordinator import (
     CoordinationResult,
     Coordinator,
@@ -10,6 +22,13 @@ from agi.coordinator import (
     single_step_decomposer,
 )
 from agi.events import Event, EventBus
+from agi.fork import (
+    ForkOutcome,
+    ForkVariant,
+    RaceResult,
+    SessionFork,
+    default_judge,
+)
 from agi.memory import Memory
 from agi.persistence import SessionStore
 from agi.reflection import Reflector, ReflectionResult
@@ -22,36 +41,49 @@ from agi.world_model import Observation, WorldModel
 
 __all__ = [
     "Agent",
+    "AutonomousLoop",
+    "AutonomousResult",
+    "CapabilityRecommendation",
+    "CapabilityRecord",
+    "CapabilityRegistry",
+    "Coordinator",
+    "CoordinationResult",
+    "default_judge",
+    "default_lesson_analyzer",
+    "Event",
+    "EventBus",
+    "ForkOutcome",
+    "ForkVariant",
+    "Goal",
+    "IterationOutcome",
+    "label_aggregator",
     "Memory",
+    "Observation",
+    "Plan",
+    "PlanStep",
+    "promote_skill",
+    "RaceResult",
+    "ReflectionResult",
+    "Reflector",
     "Runtime",
     "Session",
     "SessionConfig",
+    "SessionFork",
     "SessionState",
     "SessionStore",
-    "Event",
-    "EventBus",
+    "single_step_decomposer",
     "Skill",
+    "SkillCandidate",
     "SkillLibrary",
+    "StepOutcome",
+    "SynthesizedTool",
     "Task",
     "TaskQueue",
     "TaskRunner",
-    "submit_task",
-    "ToolSynthRegistry",
-    "SynthesizedTool",
     "ToolSynthError",
-    "Coordinator",
-    "CoordinationResult",
-    "Goal",
-    "Plan",
-    "PlanStep",
-    "StepOutcome",
-    "single_step_decomposer",
-    "label_aggregator",
-    "SkillCandidate",
+    "ToolSynthRegistry",
+    "WorldModel",
     "mine_skills",
     "propose_skill_from_cluster",
-    "Reflector",
-    "ReflectionResult",
-    "WorldModel",
-    "Observation",
+    "submit_task",
 ]
