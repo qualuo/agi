@@ -14,11 +14,20 @@ agi/                # runtime + agent + reference coordinator
   runtime.py        # Runtime, Session, SessionConfig — the engine surface
   events.py         # EventBus + typed Event kinds (the coordination signal)
   server.py         # HTTP+SSE server exposing Runtime (stdlib only)
+  protocol.py       # JSON-RPC 2.0 over stdio — drive the Runtime as a subprocess
   agent.py          # streaming agent loop — adaptive thinking + tool dispatch
   coordinator.py    # reference Coordinator + Goal/Plan/PlanStep abstractions
+  goalc.py          # Goal compiler: heuristic + LLM-based default decomposers
   autoloop.py       # AutonomousLoop — retry-with-lessons until goal accepted
   fork.py           # SessionFork — race N variants, pick winner by critic
+  pool.py           # RuntimePool — federation: many runtimes, one dispatch surface
   capabilities.py   # observed-performance routing — learn which roles win where
+  policy.py         # PolicyRouter — Thompson-sampled bandit on top of capabilities
+  selfeval.py       # SelfEvalBank — agent-mined regression suite + promotion gate
+  autonomy.py       # AutonomyEngine — continuous closed-loop self-improvement
+  knowledge.py      # KnowledgeGraph — typed nodes + relations + facts
+  governance.py     # multi-tenant budgets, quotas, rate limits, fair-share
+  mcp.py            # Model Context Protocol server: drive from Claude Desktop/Code
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
   reflection.py     # per-task lessons-to-memory loop (medium-timescale learning)
@@ -40,7 +49,7 @@ learner/            # learning track — small open base + LoRA loop
 evals/
   tasks.jsonl       # eval tasks (math, file ops, recall, search)
   run.py            # eval runner
-tests/              # 128 unit tests, all run without an API key
+tests/              # 285+ unit tests, all run without an API key
 ARCHITECTURE.md     # full design — read this for direction
 PLAN.md             # stage roadmap
 ```
@@ -146,6 +155,172 @@ coordination engine composes them or rolls its own:
 See `examples/agi_demo.py` for an end-to-end narrated run that wires
 all three together without an API key.
 
+### Five more modules a coordination engine cares about
+
+These extend the runtime into a federated, self-learning, externally
+drivable engine — investor pitch: "the more you run it, the smarter,
+cheaper, and harder-to-break it gets."
+
+- **`PolicyRouter`** (`agi/policy.py`) — Thompson-sampling bandit over
+  `(role, model, effort)` arms on top of `CapabilityRegistry`. Each
+  decision draws from per-arm Beta posteriors conditioned on prompt
+  similarity, penalised by expected cost. Real online learning at the
+  routing layer; the policy converges to the right arm faster than
+  the registry's similarity-weighted recommender.
+
+  ```python
+  from agi.policy import PolicyRouter
+
+  router = PolicyRouter(caps, epsilon=0.05, cost_weight=5.0)
+  decision = router.decide("compile this regex", budget_usd=0.05)
+  cfg = decision.to_session_config()
+  result = rt.chat(rt.create_session(cfg), "compile this regex")
+  router.observe(prompt=..., decision=decision, success=True,
+                 cost_usd=..., duration_seconds=...)
+  ```
+
+- **`RuntimePool`** (`agi/pool.py`) — federation layer. Add many
+  `RuntimeNode`s (in-process today, HTTP/JSON-RPC out-of-process
+  tomorrow); `pool.dispatch(prompt)` routes by skill match + node
+  load + health. `aggregate_capabilities()` is the federation-wide
+  view a coordinator sees.
+
+  ```python
+  from agi.pool import RuntimeNode, RuntimePool
+
+  pool = RuntimePool()
+  pool.add_node(RuntimeNode(node_id="gpu-1", runtime=rt1, tags=("gpu",)))
+  pool.add_node(RuntimeNode(node_id="gpu-2", runtime=rt2, tags=("gpu",)))
+  d = pool.dispatch("summarize this PDF", require_tag="gpu")
+  ```
+
+- **`CoordinationProtocol`** (`agi/protocol.py`) — newline-delimited
+  JSON-RPC 2.0 over stdio. Any coordination engine (in any language)
+  spawns `python -m agi` as a subprocess and drives it through:
+  `runtime.capabilities`, `session.create/chat/cancel/end`,
+  `tasks.submit/drain`, `events.subscribe/history`, `skills.save`,
+  `tools.synthesize`. Notifications stream events back.
+
+- **`SelfEvalBank`** (`agi/selfeval.py`) — mines `(prompt, expected
+  substring/regex/min-length)` items from successful traces. Before
+  promoting a new skill or synthesized tool, a coordinator calls
+  `bank.gate_promotion(runner, baseline_pass_rate=...)` to refuse
+  changes that regress the bank.
+
+  ```python
+  from agi.selfeval import SelfEvalBank
+
+  bank = SelfEvalBank()
+  bank.auto_mine(prompt=..., final_text=..., critic_score=0.95)
+  ok, report = bank.gate_promotion(bank.runtime_runner(rt),
+                                    baseline_pass_rate=1.0)
+  ```
+
+- **`goalc.heuristic_decomposer` / `goalc.llm_decomposer`** — the
+  Coordinator's pluggable decomposer is now production-usable out
+  of the box. The heuristic decomposer recognises common shapes
+  (analyze / compare / build / find-and-summarize) and emits a
+  multi-step DAG; the LLM decomposer asks a planner-role session to
+  write a JSON Plan, reading the runtime's capabilities first. Use
+  `chained_decomposer` to run heuristic-first, LLM-fallback.
+
+  ```python
+  from agi.goalc import chained_decomposer, heuristic_decomposer, llm_decomposer
+  from agi.coordinator import Coordinator
+
+  coord = Coordinator(rt, decomposer=chained_decomposer(
+      heuristic_decomposer, llm_decomposer(rt), min_steps=2,
+  ))
+  result = coord.run(Goal(intent="analyze the impact of LoRA"))
+  ```
+
+See `examples/runtime_engine_demo.py` for a single narrated run that
+exercises all five.
+
+### Four platform layers for production deployments
+
+- **`AutonomyEngine`** (`agi/autonomy.py`) — the *outer* loop. Pulls
+  goals from a queue (anything that returns the next `Goal` or `None`),
+  pursues each through `AutonomousLoop`, records outcomes to the
+  `CapabilityRegistry`, mines skills from successes, gates promotion on
+  `SelfEvalBank` regression, and writes new eval items back to the bank
+  so the regression suite *grows from real use*. Run it as a heartbeat
+  and the system measurably improves between invocations.
+
+  ```python
+  from agi.autonomy import AutonomyEngine, GoalQueue
+
+  queue = GoalQueue()
+  queue.push(Goal(intent="…", acceptance=lambda t: "42" in t))
+  engine = AutonomyEngine(
+      rt, Coordinator(rt),
+      goal_provider=queue.as_provider(),
+      eval_bank=bank,
+      eval_runner=bank.runtime_runner(rt),  # gates skill promotion
+      capabilities=caps,
+      max_iterations=3, max_cost_per_tick_usd=0.50,
+  )
+  engine.run_forever(max_ticks=100, heartbeat_seconds=5.0, idle_grace_ticks=10)
+  ```
+
+  Emits `autonomy.tick_*`, `autonomy.goal_*`, `autonomy.skill_promoted`,
+  `autonomy.skill_rejected`, `autonomy.evalbank_updated`, `autonomy.idle`.
+
+- **`KnowledgeGraph`** (`agi/knowledge.py`) — typed nodes (`file`,
+  `url`, `session`, `skill`, `project`, `user`, …) + directed relations
+  (`depends_on`, `wrote`, `fetched`, `spawned`, …) + timestamped facts.
+  `attach_to_bus(kg, runtime.bus)` makes the graph grow automatically
+  from agent activity. `kg.neighborhood(node, hops=N)` and
+  `kg.context_for(kind, key)` give a coordinator structured context
+  to inject into the next prompt — real semantic memory, not keyword
+  search.
+
+  ```python
+  from agi.knowledge import KnowledgeGraph, attach_to_bus
+
+  kg = KnowledgeGraph()
+  attach_to_bus(kg, rt.bus)
+  ctx = kg.context_for("project", "agi", hops=2)  # ground next prompt
+  ```
+
+- **`PolicyManager` / `GovernedRuntime`** (`agi/governance.py`) — hard
+  multi-tenant isolation. Per-tenant daily / hourly / lifetime cost
+  caps, max concurrent sessions, prompts-per-minute / per-day rate
+  limits, weighted fair-share scheduling across competing tenants, and
+  an append-only JSONL audit log of every admission decision. The
+  difference between a demo and a SaaS deployment.
+
+  ```python
+  from agi.governance import GovernedRuntime, PolicyManager, TenantLimits
+
+  pm = PolicyManager(audit_path="/var/log/agi-audit.jsonl")
+  pm.set_limits(TenantLimits("acme",
+                             daily_cost_usd=10.0,
+                             max_concurrent_sessions=5,
+                             max_prompts_per_minute=60))
+  gr = GovernedRuntime(rt, pm)
+  sid = gr.create_session("acme", SessionConfig())
+  text = gr.chat("acme", sid, "…")
+  ```
+
+- **`McpServer`** (`agi/mcp.py`) — exposes the Runtime as a Model
+  Context Protocol server over stdio JSON-RPC. Claude Desktop, Claude
+  Code, or any MCP-aware client connects with one config line and gets
+  `agi.create_session`, `agi.chat`, `agi.run_goal`, `agi.recall`,
+  `agi.autonomy.tick`, `agi.save_skill`, plus the live session/event
+  resource feed. Distribution path: this runtime drops into any MCP
+  host.
+
+  ```python
+  from agi.mcp import run_stdio
+  run_stdio(rt, coordinator=coord, knowledge=kg, autonomy_engine=engine)
+  ```
+
+See `examples/agi_autonomy_demo.py` for an end-to-end run that wires
+the autonomy engine, knowledge graph, capability registry, policy
+router, self-eval bank, and policy manager together — no API key
+needed.
+
 ## Runtime API — for a coordination engine
 
 The `Runtime` is the integration point. A coordination engine (orchestrator,
@@ -220,6 +395,24 @@ coordinators:
 
 Optional bearer-token auth via `AGI_AUTH_TOKEN` env var or `--auth-token`.
 
+## stdio JSON-RPC surface
+
+For coordinators that prefer spawning the runtime as a subprocess
+(MCP-style), `CoordinationProtocol` exposes the same surface over
+newline-delimited JSON-RPC 2.0 on stdin/stdout:
+
+```python
+from agi.runtime import Runtime
+from agi.protocol import CoordinationProtocol
+CoordinationProtocol(Runtime()).serve_stdio()
+```
+
+Methods: `ping`, `version`, `runtime.capabilities`, `runtime.metrics`,
+`session.create/chat/cancel/end/get/list`, `tasks.submit/get/drain`,
+`skills.save`, `tools.synthesize`, `events.subscribe/unsubscribe/history`.
+Notifications: `ready` (banner on connect), `event` (one per bus event
+while subscribed).
+
 ## Event kinds (the coordination contract)
 
 The bus emits typed events. Coordinators pattern-match on `kind`:
@@ -235,6 +428,8 @@ The bus emits typed events. Coordinators pattern-match on `kind`:
 - `autoloop.completed` / `autoloop.failed` / `autoloop.budget_exhausted`
 - `autoloop.skill_promoted` — a winning trajectory graduated into the library
 - `fork.race_started` / `fork.race_completed`
+- `pool.node_added` / `pool.node_removed` / `pool.node_unhealthy`
+- `pool.dispatch_started` / `pool.dispatch_completed` / `pool.dispatch_failed`
 - `error` — including `CostCeilingExceeded` when budget runs out
 
 Subagent token usage rolls up into the parent session for honest accounting.
@@ -252,6 +447,16 @@ Subagent token usage rolls up into the parent session for honest accounting.
 - Stream output and emit a typed event for every state transition
 - Enforce per-session **cost ceilings** at the runtime layer
 - Critic gate: scores final responses and annotates low-confidence ones
+- **Learn which (role, model, effort) wins** on which prompts via a
+  contextual Thompson-sampling bandit (`PolicyRouter`)
+- **Federate over many runtimes** with skill- and load-aware dispatch
+  (`RuntimePool`) — one coordinator, N runtime nodes
+- **Speak JSON-RPC over stdio** so any external coordinator drives the
+  runtime as a subprocess (`CoordinationProtocol`)
+- **Mine its own regression suite** from successful traces and refuse
+  promotions that regress it (`SelfEvalBank`)
+- **Auto-decompose Goals** into multi-step DAGs via heuristic patterns
+  or an LLM planner (`agi.goalc`)
 
 ## What it can't do (yet)
 
@@ -266,8 +471,9 @@ research vs. tractable engineering.
 
 ```sh
 python -m unittest discover tests
-# 165+ tests across events, skills, toolsynth, runtime, server, persistence,
-# tasks, coordinator, autoloop, fork, capabilities, skillmine, agent, learner
+# 230+ tests across events, skills, toolsynth, runtime, server, persistence,
+# tasks, coordinator, autoloop, fork, capabilities, skillmine, agent, learner,
+# policy, pool, protocol, selfeval, goalc
 ```
 
 All tests run without an API key; they exercise the runtime, sandbox, and
