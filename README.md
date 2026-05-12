@@ -28,6 +28,7 @@ agi/                # runtime + agent + reference coordinator
   knowledge.py      # KnowledgeGraph — typed nodes + relations + facts
   governance.py     # multi-tenant budgets, quotas, rate limits, fair-share
   mcp.py            # Model Context Protocol server: drive from Claude Desktop/Code
+  evolve.py         # EvolutionEngine — closed-loop self-improvement over strategies
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
   reflection.py     # per-task lessons-to-memory loop (medium-timescale learning)
@@ -49,7 +50,7 @@ learner/            # learning track — small open base + LoRA loop
 evals/
   tasks.jsonl       # eval tasks (math, file ops, recall, search)
   run.py            # eval runner
-tests/              # 285+ unit tests, all run without an API key
+tests/              # 290+ unit tests, all run without an API key
 ARCHITECTURE.md     # full design — read this for direction
 PLAN.md             # stage roadmap
 ```
@@ -320,6 +321,49 @@ See `examples/agi_autonomy_demo.py` for an end-to-end run that wires
 the autonomy engine, knowledge graph, capability registry, policy
 router, self-eval bank, and policy manager together — no API key
 needed.
+
+### The closed loop: `EvolutionEngine`
+
+- **`EvolutionEngine`** (`agi/evolve.py`) — the driver that turns the
+  pieces above into an actual self-improvement loop a coordination
+  engine can run on a schedule. Evolutionary search over agent
+  `Strategy` variants (model × effort × role × system-prompt nudge ×
+  skill overlay), scored on a benchmark from `SelfEvalBank` by
+  ``fitness = pass_rate − cost_weight × mean_cost_usd``. Each
+  generation: evaluate every strategy, select the top-k, mutate parents
+  into children, eval-gate the winner, and *promote* — record outcomes
+  in `CapabilityRegistry`, update `PolicyRouter` posteriors so future
+  routing biases toward the winning arm, mine a skill from successful
+  traces and save it to `SkillLibrary`, and grow the regression bank
+  with newly-validated items.
+
+  The artifact is an `EvolutionResult` with per-generation
+  `fitness_curve`, `pass_rate_curve`, `mean_cost_curve` curves and a
+  list of `PromotionRecord`s — what a UI displays as proof the runtime
+  improves itself with use. Promotion is gated by the regression bank,
+  so a generation that doesn't beat baseline is *rejected* and nothing
+  contaminates the routing or skill layers.
+
+  ```python
+  from agi.evolve import EvolutionEngine, default_seed_strategies, runtime_runner
+
+  engine = EvolutionEngine(
+      runner=runtime_runner(rt),         # drives a real Runtime
+      registry=caps, policy=router,      # closed-loop promotion targets
+      skill_library=rt.skills, eval_bank=bank,
+      cost_weight=2.0, seed=42,
+  )
+  result = engine.evolve(
+      seed_strategies=default_seed_strategies(),
+      benchmark=bank.all(),
+      generations=4, top_k=2, children_per_gen=3,
+  )
+  print(result.summary())  # fitness/pass-rate/cost curves + promotions
+  ```
+
+  See `examples/evolve_demo.py` for a hermetic runnable demo that
+  shows fitness climbing and cost falling across generations on a
+  toy landscape.
 
 ## Runtime API — for a coordination engine
 
