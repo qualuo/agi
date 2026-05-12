@@ -453,9 +453,37 @@ CoordinationProtocol(Runtime()).serve_stdio()
 
 Methods: `ping`, `version`, `runtime.capabilities`, `runtime.metrics`,
 `session.create/chat/cancel/end/get/list`, `tasks.submit/get/drain`,
-`skills.save`, `tools.synthesize`, `events.subscribe/unsubscribe/history`.
+`plans.submit/run/get/list/cancel`, `skills.save`, `tools.synthesize`,
+`events.subscribe/unsubscribe/history`.
 Notifications: `ready` (banner on connect), `event` (one per bus event
 while subscribed).
+
+### Parallel DAG plans — `ParallelScheduler`
+
+`agi.scheduler.ParallelScheduler` is the coordination primitive when the
+work has *shape*. Hand it a `Plan` (steps + dependencies) and it
+dispatches independent steps in parallel up to `max_concurrent_steps`,
+retries transient failures with exponential backoff, enforces per-plan
+budget and deadline, and streams `plan.step.*` / `plan.completed` events.
+The same surface is exposed over JSON-RPC as `plans.submit` / `plans.run`
+for out-of-process coordinators.
+
+```python
+from agi.scheduler import ParallelScheduler, SchedulerConfig, RetryPolicy
+from agi.coordinator import Plan, PlanStep
+
+sched = ParallelScheduler(runtime, config=SchedulerConfig(
+    max_concurrent_steps=4,
+    retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.5),
+))
+result = sched.run(Plan(steps=[
+    PlanStep(id="a", prompt="research X"),
+    PlanStep(id="b", prompt="research Y"),
+    PlanStep(id="c", prompt="synthesize", depends_on=["a", "b"]),
+]), budget_usd=5.0)
+```
+
+See `examples/parallel_plan_demo.py` for a fan-out / fan-in walkthrough.
 
 ## Event kinds (the coordination contract)
 
@@ -474,6 +502,9 @@ The bus emits typed events. Coordinators pattern-match on `kind`:
 - `fork.race_started` / `fork.race_completed`
 - `pool.node_added` / `pool.node_removed` / `pool.node_unhealthy`
 - `pool.dispatch_started` / `pool.dispatch_completed` / `pool.dispatch_failed`
+- `plan.scheduled` / `plan.step.ready` / `plan.step.running`
+- `plan.step.completed` / `plan.step.failed` / `plan.step.retry`
+- `plan.completed` / `plan.failed` / `plan.budget_exhausted` / `plan.cancelled`
 - `error` — including `CostCeilingExceeded` when budget runs out
 
 Subagent token usage rolls up into the parent session for honest accounting.
