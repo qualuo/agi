@@ -441,6 +441,58 @@ all from a single deterministic verdict.
 
 See `examples/preflight_demo.py` for the full end-to-end walkthrough.
 
+## RuntimeDriver — the one entry point a coordination engine uses
+
+Preflight, admission, governance, dispatch, event streaming and billing
+each have their own primitive. A coordination engine wiring them by hand
+is brittle. `RuntimeDriver` collapses all of it into a single contract:
+
+```python
+from agi import RuntimeDriver, TicketRequest, PolicyManager, TenantLimits
+
+policy = PolicyManager()
+policy.set_limits(TenantLimits(tenant_id="acme", daily_cost_usd=10.0))
+
+driver = RuntimeDriver(
+    runtime=rt,
+    policy=policy,
+    receipts_path="receipts.jsonl",
+    max_concurrent=8,
+)
+
+ticket = driver.submit(TicketRequest(
+    intent="Summarize Q4 earnings call",
+    tenant_id="acme",
+    budget_usd=0.20,      # hard ceiling: passed through to the session
+))
+
+# Live progress
+for ev in ticket.stream():
+    ...
+
+receipt = ticket.result()            # blocking; returns billing-grade Receipt
+# receipt.status   ∈ completed | rejected | deferred | failed | cancelled
+# receipt.decisions = [estimate → admission → (downgrade)? → route → dispatch → complete]
+# receipt.estimated_cost_usd, receipt.actual_cost_usd, receipt.actual_duration_s
+```
+
+Every ticket carries a **causal decision trace** — the ordered list of
+forks the driver took (estimate, admission verdict, optional downgrade,
+node routing, dispatch, completion). The trace is what an operator
+replays for audit, billing reconciliation, or post-hoc cost attribution.
+
+Receipts are JSON-serializable and persist as JSONL — one line per
+ticket — so a fleet of runtimes can stream billing into the same file
+or pipe.
+
+`RuntimeDriver` accepts either a single `Runtime` or a `RuntimePool`;
+in the pool case the route decision records which node handled the
+ticket, so a coordination engine can attribute cost across the fleet.
+
+See `examples/driver_multi_tenant_demo.py` for the full demo: two
+tenants, ten tickets, automatic model downgrade, hard per-ticket
+budgets, and a fleet rollup at the end.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
