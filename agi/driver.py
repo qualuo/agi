@@ -314,6 +314,7 @@ class RuntimeDriver:
         max_concurrent: int = 8,
         ledger: Any | None = None,
         compliance_path: str | os.PathLike[str] | None = None,
+        attestor: Any | None = None,
     ) -> None:
         if runtime is None and pool is None:
             raise ValueError("RuntimeDriver requires either runtime= or pool=")
@@ -383,6 +384,12 @@ class RuntimeDriver:
         self._compliance_path = (
             Path(compliance_path) if compliance_path else None
         )
+
+        # Optional attestation hook. Anything callable that accepts a
+        # Receipt — typically `RuntimeAttestor(AttestationLedger(...))`
+        # from `agi.attest`. Errors in the hook are swallowed and never
+        # affect ticket completion.
+        self.attestor = attestor
 
     @property
     def portfolio(self) -> Any:
@@ -957,6 +964,12 @@ class RuntimeDriver:
         # touch a runner that already exists.
         if self._experiments_runner is not None:
             self._record_to_experiments(receipt)
+        if self.attestor is not None:
+            try:
+                self.attestor(receipt)
+            except Exception:
+                # Attestation is best-effort; never block completion.
+                pass
         if self.receipts_path is None:
             return
         try:
