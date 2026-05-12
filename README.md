@@ -27,6 +27,7 @@ agi/                # runtime + agent + reference coordinator
   autonomy.py       # AutonomyEngine — continuous closed-loop self-improvement
   knowledge.py      # KnowledgeGraph — typed nodes + relations + facts
   governance.py     # multi-tenant budgets, quotas, rate limits, fair-share
+  preflight.py      # cost/duration/p_success forecast + admission advisor
   mcp.py            # Model Context Protocol server: drive from Claude Desktop/Code
   evolve.py         # EvolutionEngine — closed-loop self-improvement over strategies
   skillmine.py      # mine reusable skills from successful trace patterns
@@ -407,6 +408,38 @@ rt.save_skill(Skill(
     tags=["debugging", "git"],
 ))
 ```
+
+## Preflight — economic decisions before dispatch
+
+A coordination engine driving the runtime needs *forecasts*: which task
+to schedule now, which to defer, which to downgrade to a cheaper model.
+The `Runtime` exposes a preflight estimator and an admission advisor
+that produce those forecasts. The estimator self-trains on the runtime's
+event stream — every completed chat refines future predictions.
+
+```python
+# Forecast cost / duration / p_success before committing to a chat
+est = rt.estimate("Summarize this PDF and extract action items.")
+# → Estimate(cost_usd=0.17, cost_p10/p90, duration_s=14.0, p_success=0.92,
+#            confidence='low'|'medium'|'high', samples=N, breakdown=…)
+
+# One-call admission decision combining preflight + governance + capacity
+advice = rt.advise(
+    "Render a long report",
+    tenant_id="acme",       # optional — checks tenant budget/rate-limit
+    config=SessionConfig(model="claude-opus-4-7"),
+)
+# advice.verdict ∈ {ADMIT, DEFER, DOWNGRADE, REJECT}
+# DOWNGRADE carries a concrete alternative (cheaper model + expected savings)
+# DEFER carries retry_after_s for the coordinator's scheduler
+```
+
+This is the missing piece for risk-aware coordination: instead of
+dispatching blindly and burning budget on jobs that will be rate-
+limited or fail, a coordinator can rank, defer, downgrade, or reject —
+all from a single deterministic verdict.
+
+See `examples/preflight_demo.py` for the full end-to-end walkthrough.
 
 ## HTTP / SSE surface
 
