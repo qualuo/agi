@@ -33,6 +33,7 @@ agi/                # runtime + agent + reference coordinator
   contract.py       # TicketSLO + SLOCompiler + hedged execution + ComplianceLedger
   driver.py         # RuntimeDriver — single entry point with portfolio + SLO surfaces
   oracle.py         # TicketOracle — counterfactual receipt replay + admission auto-tune
+  experiments.py    # ExperimentRunner — A/B experiments with guardrails (Bayesian decisions)
   portfolio.py      # PortfolioOptimizer — fixed-budget allocation across many tickets
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
@@ -813,6 +814,103 @@ A coordination engine wires this once and gets:
 See `examples/oracle_demo.py` for the four-scene story: historical
 workload → oracle recommends → 25% price-shock what-if → auto-tune
 & verify the live advisor's new knobs.
+
+### ExperimentRunner — A/B experiments as a runtime primitive
+
+`EvolutionEngine` and `TicketOracle` *propose* changes ("ship a cheaper
+model", "raise the cost cap", "swap the system prompt"). On their own,
+those proposals are interesting telemetry. `ExperimentRunner` is the
+discipline that turns them into safe, measurable production rollouts:
+
+  > Every product change ships behind an experiment with a frozen
+  > primary metric, predeclared guardrails, deterministic traffic
+  > assignment, and an auditable decision log. Nothing promotes
+  > to default without a positive primary-metric outcome that
+  > also clears every guardrail.
+
+```python
+from agi import (
+    Experiment, ExperimentRunner, Guardrail, Variant,
+    METRIC_COST_USD, METRIC_P_SUCCESS, METRIC_LATENCY_S,
+    INTERPRET_ABS_DELTA, INTERPRET_RATIO,
+)
+
+# Lazily attached on every RuntimeDriver.
+runner = driver.experiments
+
+runner.register(Experiment(
+    name="cheaper-router-v3",
+    variants=[
+        Variant("control"),
+        Variant("treatment", overrides={"model": "claude-haiku-4-5"}),
+    ],
+    primary_metric=METRIC_COST_USD,
+    direction="min",                          # lower cost = better
+    traffic_split=[0.5, 0.5],
+    min_samples_per_variant=200,
+    guardrails=[
+        # Don't ship if success rate drops more than 5pp.
+        Guardrail(metric=METRIC_P_SUCCESS, direction="min",
+                  tolerance=-0.05, interpret=INTERPRET_ABS_DELTA),
+        # Don't ship if latency more than 1.5x slower.
+        Guardrail(metric=METRIC_LATENCY_S, direction="max",
+                  tolerance=1.5, interpret=INTERPRET_RATIO),
+    ],
+))
+
+# Route a ticket through the experiment — overrides are merged into
+# the SessionConfig, observations auto-record on completion.
+ticket = driver.submit_with_experiment(
+    TicketRequest(intent="...", tenant_id="acme", budget_usd=0.20),
+    "cheaper-router-v3",
+)
+
+# Inspect / decide.
+status = runner.status("cheaper-router-v3")    # full readout
+runner.evaluate_all()                          # auto-ship/kill terminal experiments
+
+# Or run the autopilot loop:
+runner.start_autopilot(interval_s=60.0)
+```
+
+What it gives a coordination engine:
+
+- **Bayesian decisions for binary metrics** (success rate, refund rate,
+  reject rate, breach rate) — Beta-Binomial posteriors, P(treatment >
+  control) via Monte Carlo. Ships when P ≥ 1−α and the minimum sample
+  size has been reached; kills when P ≤ α.
+- **Welch's t-test for continuous metrics** (cost, latency, refund
+  amount, tokens out) with a CI on the relative lift.
+- **A derived `cost_per_success` metric** for the most common ROI
+  question — "are we paying less per successful task?"
+- **Guardrails with three interpretations** — `abs` (treatment's mean
+  must stay below tolerance), `ratio` (treatment / control ≤ tolerance),
+  `abs_delta` (treatment − control, signed). Any guardrail breach with
+  high confidence triggers an *emergency kill* even before the primary
+  metric converges.
+- **Deterministic assignment** — `hash((tenant_id or ticket_id) + salt)`,
+  so a fleet of runtimes converges on the same assignments without
+  coordination, and a given tenant stays on a stable variant across
+  many tickets.
+- **Auditable log** — every assignment, observation, and decision lands
+  in an append-only JSONL file. Reproducible release engineering, finance
+  and compliance-friendly.
+- **Pause / resume / ship / kill / conclude lifecycle** — a coordination
+  engine can flip experiments mid-run without losing accumulated data.
+- **Auto-pilot** — a background loop calls `evaluate_all()` on a tick
+  and auto-promotes winners or rolls back losers.
+
+The runner is a thin layer that composes with the rest of the runtime:
+EvolutionEngine surfaces a winner → register it as an experiment
+treatment → ramp traffic → ship or kill on the gate. TicketOracle
+identifies cheaper admission knobs → wire them behind an experiment
+before the auto-tune pushes them live. The line between "telemetry"
+and "release" becomes a single first-class object.
+
+See `examples/experiments_demo.py` for the four-scene story:
+clear win ships → clear loss kills → guardrail breach overrides a
+tempting cost win → 50 live FakeAgent tickets routed through the
+driver's `submit_with_experiment(...)` path.
 
 ## HTTP / SSE surface
 

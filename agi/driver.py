@@ -368,6 +368,7 @@ class RuntimeDriver:
         self._portfolio_optimizer: Any | None = None
         self._slo_compiler: Any | None = None
         self._oracle: Any | None = None
+        self._experiments_runner: Any | None = None
         # When True, every completed ticket also gets fed into the
         # oracle's rolling buffer so `auto_tune` has data even after
         # tickets fall out of memory. Defaults to True — cheap, and
@@ -440,6 +441,78 @@ class RuntimeDriver:
                 estimator=self.estimator, baseline_knobs=baseline,
             )
         return self._oracle
+
+    @property
+    def experiments(self) -> Any:
+        """Lazy `ExperimentRunner` for A/B experiments with guardrails.
+
+        A coordination engine registers experiments via the runner and
+        either:
+
+          * Routes traffic manually:
+                v = driver.experiments.assign("exp", tenant_id=tid)
+                cfg = driver.experiments.apply_to_config(v, cfg)
+                ticket = driver.submit(TicketRequest(...))
+          * Or uses the convenience wrapper:
+                ticket = driver.submit_with_experiment(req, "exp")
+
+        Either way, completed receipts automatically record an
+        observation on the runner via `_persist_receipt`, so the
+        experiment's stats stay in sync with the driver without the
+        coordination engine threading any extra plumbing.
+        """
+        if self._experiments_runner is None:
+            from agi.experiments import ExperimentRunner
+            self._experiments_runner = ExperimentRunner()
+        return self._experiments_runner
+
+    def submit_with_experiment(
+        self,
+        request: TicketRequest,
+        experiment_name: str,
+        *,
+        bucket_key: str | None = None,
+    ) -> Ticket:
+        """Assign the request to a variant of `experiment_name` and submit.
+
+        The variant's `overrides` are merged into the request's
+        `SessionConfig` before dispatch, and the assignment is recorded
+        into the request's `metadata['experiment_assignments']` so the
+        downstream auto-record path can attribute the observation to
+        the right variant.
+
+        Behaviour when the experiment is paused/terminal or unknown:
+        the request is submitted unmodified (the experiment was already
+        decided — letting traffic flow on the default config is the
+        safe outcome).
+        """
+        runner = self.experiments
+        bk = bucket_key or request.tenant_id
+        assignment = runner.assign(
+            experiment_name,
+            tenant_id=request.tenant_id,
+            bucket_key=bk,
+        )
+        if assignment is None:
+            return self.submit(request)
+        cfg = request.config or SessionConfig()
+        variant = runner.get(experiment_name).variant(assignment.variant)
+        cfg = runner.apply_to_config(variant, cfg)
+        meta = dict(request.metadata or {})
+        assignments = dict(meta.get("experiment_assignments", {}))
+        assignments[experiment_name] = assignment.variant
+        meta["experiment_assignments"] = assignments
+        new_req = TicketRequest(
+            intent=request.intent,
+            tenant_id=request.tenant_id,
+            budget_usd=request.budget_usd,
+            deadline_ts=request.deadline_ts,
+            config=cfg,
+            allow_downgrade=request.allow_downgrade,
+            namespace=request.namespace,
+            metadata=meta,
+        )
+        return self.submit(new_req)
 
     # --- public API -----------------------------------------------
 
@@ -879,6 +952,11 @@ class RuntimeDriver:
                 self._oracle.record(receipt)
             except Exception:
                 pass
+        # Mirror to the experiment runner if the receipt carries an
+        # assignment. Same lazy-construct policy as oracle: we only
+        # touch a runner that already exists.
+        if self._experiments_runner is not None:
+            self._record_to_experiments(receipt)
         if self.receipts_path is None:
             return
         try:
@@ -889,6 +967,35 @@ class RuntimeDriver:
             # Persistence is best-effort; a coordination engine still has
             # the live receipt object via ticket.result().
             pass
+
+    def _record_to_experiments(self, receipt: Receipt) -> None:
+        """Forward a terminal receipt to any experiments it was assigned to.
+
+        Looks up `experiment_assignments` in the original request's
+        metadata, which `submit_with_experiment` stashes there. Each
+        assignment becomes one observation on the runner.
+        """
+        ticket = self._tickets.get(receipt.ticket_id)
+        if ticket is None:
+            return
+        meta = ticket.request.metadata or {}
+        assignments = meta.get("experiment_assignments")
+        if not assignments:
+            return
+        success = receipt.status == COMPLETED
+        rejected = receipt.status == REJECTED
+        for exp_name, variant_name in assignments.items():
+            try:
+                self._experiments_runner.record(
+                    exp_name,
+                    variant_name,
+                    success=success,
+                    cost_usd=receipt.actual_cost_usd,
+                    latency_s=receipt.actual_duration_s,
+                    rejected=rejected,
+                )
+            except Exception:
+                pass
 
 
 def _clone_config(cfg: SessionConfig, **overrides: Any) -> SessionConfig:
