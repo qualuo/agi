@@ -45,6 +45,7 @@ agi/                # runtime + agent + reference coordinator
   experiment_design.py # ExperimentDesigner — Bayesian Optimal Experiment Design (EIG / BALD / KG / Thompson Top-K / Fedorov D-optimal); picks the next batch of experiments that maximally sharpens the policy per dollar
   deliberator.py    # Deliberator — adaptive sequential sampling kernel; anytime-valid stopping (WSR confidence sequences) so the runtime spends 1-3 samples on easy queries and escalates on ambiguous ones, with one quality dial α
   drift.py          # DriftSentinel — anytime-valid sequential drift detection (Page-Hinkley CUSUM + BOCPD changepoint posterior + Shin-Ramdas-Rinaldo e-process); the trust-gate that tells the coordinator when calibration/conformal/policy estimates have gone stale
+  arbiter.py        # Arbiter — fixed-confidence Best-Arm Identification (Track-and-Stop / KL-LUCB / Sequential Halving); identifies the winning model/prompt/policy at (ε, δ)-PAC with asymptotically optimal sample complexity, the cross-strategy dual of Deliberator
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -1594,6 +1595,122 @@ guarantee. One dial (α) controls how aggressive the trust gate is.
 Honest engineering for an honest dashboard.
 
 See `examples/drift_demo.py` for an end-to-end run.
+
+## Arbiter — fixed-confidence Best-Arm Identification
+
+Every coordination engine on top of this runtime sooner or later faces
+the same question: of these K candidate strategies — model variants,
+prompt templates, tool implementations, fine-tuned adapters, sub-agent
+roles — **which one is best**, and how many samples does the runtime
+need to commit with a specified confidence?
+
+`Deliberator` answers "should I sample one more time *within* a single
+query?" `Arbiter` answers the cross-strategy dual: "should I sample one
+more time *across* competing strategies before I commit?". It is the
+classical Best-Arm Identification (BAI) problem — distinct from regret
+minimisation (UCB/Thompson) that overpulls the empirical leader and
+therefore *under*-explores runners-up.
+
+Three algorithms ship under one unified API, spanning the practical
+Pareto frontier between sample optimality, implementation complexity,
+and operational fit:
+
+* **Track-and-Stop (Garivier-Kaufmann, COLT 2016).** Asymptotically
+  optimal: as δ → 0, no algorithm beats it in expected sample
+  complexity. Tracks the game-theoretic optimal proportion vector
+  `w*` solving
+
+      w* = argmax_w min_{a ≠ a*} ( w_{a*} d(μ_{a*}, x_a) + w_a d(μ_a, x_a) )
+
+  with `x_a` the pooled midpoint. The C-tracking rule picks the arm
+  that maximises the cumulative deficit `t · w*_a − N_a(t)`, with
+  forced exploration `√t/K` so every arm gets sampled infinitely
+  often. Stopping is the GLR statistic
+  `Z_{a*,a}(t) = N_{a*} d(μ̂_{a*}, x̂_a) + N_a d(μ̂_a, x̂_a)` against
+  the Kaufmann-Koolen threshold `β(t, δ) = log((log(t)+1)/δ) +
+  (K-1) log log t`.
+
+* **KL-LUCB (Kalyanakrishnan-Tewari-Auer-Stone, ICML 2012).** The
+  pragmatic workhorse: identify the empirical leader `h_t` and its
+  KL-UCB challenger `l_t`, pull both, stop when
+  `U_{l_t} − L_{h_t} ≤ ε`. Bounds use the KL inversion
+  `U_a = sup{q : N_a · d(μ̂_a, q) ≤ β(t, δ)}`. Not asymptotically
+  optimal but matches Track-and-Stop within ~2× on most regimes and
+  is robust to model mismatch in finite samples.
+
+* **Sequential Halving (Karnin-Koren-Somekh, ICML 2013).** Fixed-
+  *budget* alternative: given a total sample count `T`, split into
+  `⌈log₂ K⌉` rounds, eliminate the bottom half by empirical mean
+  each round. With probability ≥ 1 − exp(−T / (8 H₂ log₂ K)) the
+  returned arm is best. The right primitive when budget is the
+  constraint, not confidence.
+
+```python
+from agi.arbiter import (
+    Arbiter, ALGO_TRACK_AND_STOP, REWARD_BERNOULLI, VERDICT_BEST,
+)
+
+arbiter = Arbiter(bus=bus, attestor=attestor)
+
+# Streaming — feed observations from the live runtime, ask for next pulls.
+cid = arbiter.start_campaign(
+    arms=["haiku", "sonnet", "opus"],
+    algorithm=ALGO_TRACK_AND_STOP,
+    delta=0.05,
+    reward_model=REWARD_BERNOULLI,
+)
+for obs in driver.completed():
+    arbiter.observe(cid, obs.arm_id, float(obs.success))
+    plan = arbiter.next_pulls(cid, batch=4)
+    if plan.stopped:
+        break
+report = arbiter.report(cid)
+if report.verdict == VERDICT_BEST:
+    coordinator.promote(report.best_arm, certificate=report.pac_receipt_hash)
+
+# Synchronous — Arbiter drives the sampler itself.
+def sample(arm_id: str) -> float:
+    return float(driver.dispatch(prompt, model=arm_id).success)
+
+campaign = arbiter.run(
+    arms=["v1", "v2", "v3"], sampler=sample,
+    algorithm=ALGO_TRACK_AND_STOP, delta=0.01, max_samples=10_000,
+)
+```
+
+Composition with the rest of the stack:
+
+* `Strategist.recommend(...)` returning `STRAT_EXPLORE` ("the data is
+  too thin; run for data") hands the candidate set to
+  `Arbiter.campaign(...)`. Strategist re-runs with the winner pinned
+  and typically returns `STRAT_SINGLE` on the next call. Arbiter is
+  the *commit-with-confidence* loop the runtime closes around
+  Strategist's exploration verdict.
+* `PolicyImprover.safety_check(...)` HCPI-certifies the winning arm's
+  induced policy against the baseline before promotion. Arbiter says
+  *which*; PolicyImprover says *whether it's safe to ship*.
+* `CalibrationEngine` / `ConformalPredictor` consume per-arm means
+  and residuals from `arbiter.history()` to bootstrap calibrators on
+  new variants.
+* `AttestationLedger` records the campaign as `arbiter.committed`
+  with arm counts, stopping statistic, and PAC certificate. Replay
+  the decision under the same δ and reproduce the winner bit-for-bit.
+* `DriftSentinel` subscribes to `arbiter.observed`; a drift trigger
+  on the winning arm's reward stream invalidates the certificate and
+  the coordinator must re-arbitrate.
+
+Investor framing: shipping a new model variant has historically been a
+months-long judgement call held together by gut feel and "more is
+better" testing. `Arbiter` collapses that to a one-dial decision: pick
+δ, hand over the candidates, get back a winner with a tamper-evident
+PAC certificate in *asymptotically optimal* sample count. On a 3-arm
+Bernoulli problem at δ=0.05 with realistic gaps (0.55 / 0.75 / 0.82) a
+campaign typically commits in 4–5k samples — a fraction of the
+sample budget naïve fixed-N A/B testing would burn. One dial.
+
+See `tests/test_arbiter.py` for the verified statistical contracts
+(PAC coverage, sample-complexity monotonicity in δ and gap,
+Track-and-Stop vs. KL-LUCB head-to-head).
 
 ## HTTP / SSE surface
 
