@@ -38,6 +38,7 @@ agi/                # runtime + agent + reference coordinator
   attest.py         # AttestationLedger — tamper-evident, HMAC-signed receipt chain
   calibration.py    # CalibrationEngine — isotonic/Platt recalibration of p_success
   policy_lab.py     # PolicyLab — off-policy evaluation (IPS/SNIPS/DM/DR/SWITCH-DR)
+  policy_improver.py # PolicyImprover — safe off-policy *optimization* (CRM/POEM) with finite-sample HCPI (Bernstein-LCB) safety gate; the policy-shipping dual of PolicyLab
   conformal.py      # ConformalPredictor — distribution-free, finite-sample-valid prediction intervals (CQR / Mondrian / Jackknife+ / ACI / RAPS)
   causal.py         # CausalLab — heterogeneous treatment effects (T/S/X/DR-learners, Qini, BLP, permutation test)
   strategist.py     # Strategist — top-level meta-decision API; fuses calibration + conformal + causal + OPE into one risk-adjusted recommendation
@@ -970,6 +971,74 @@ Investor framing: *we run last week's traffic through ten candidate
 policies in silico and ship the one with the highest expected reward
 under a calibrated confidence interval — before paying for a single
 live A/B*. See `examples/policy_lab_demo.py`.
+
+## PolicyImprover — safe off-policy optimization with HCPI
+
+`agi.policy_improver.PolicyImprover` is the **dual** of PolicyLab:
+where the lab *evaluates* a fixed policy, the improver *finds the best
+policy* in a parameterised family and certifies the answer with a
+**finite-sample High-Confidence Policy Improvement (HCPI)** guarantee
+(Thomas, Theocharous & Ghavamzadeh 2015). It is the bandit-optimization
+primitive the coordination engine reaches for when it wants to
+*upgrade* the current router / admitter / pricer **and prove the
+upgrade won't regress production**.
+
+What it implements
+
+- **Counterfactual Risk Minimization** (Swaminathan-Joachims 2015,
+  POEM): clipped IPS objective with optional variance-penalty term
+  (`OBJ_CRM_VAR`). Weight clip plays the dual role of regularizer +
+  variance control.
+- **Multi-start projected gradient ascent** over softmax parameters.
+  Multi-start handles non-convexity; the projection keeps θ in a
+  bounded box; analytic ∇log π for softmax, numeric for mixture / ε.
+- **Three policy spaces**: `SoftmaxPolicySpace` (general contextual),
+  `MixturePolicySpace` (α-interpolation baseline ↔ target — the safe
+  HCPI dial from Thomas et al. Algorithm 2), `EpsilonGreedyPolicySpace`
+  (floor exploration of a fixed inner policy).
+- **HCPI safety gate**: empirical-Bernstein lower bound (Maurer-Pontil
+  2009) on `V(π_new) - V(π_baseline)`. Verdict is `SAFE`, `UNSAFE`, or
+  `UNCERTAIN` — and `safe == True` only when LCB > 0 at level 1 - δ.
+- **Diagnostics**: Kish ESS, max/mean importance weight, clipped
+  fraction, action coverage, convergence flag — the same numbers a
+  coordination engine needs to decide whether to ship, defer, or
+  collect more data.
+- **`safety_check()`** for arbitrary callable policies (e.g. a
+  learned model or a hand-written rule from another team) — the same
+  HCPI bound without optimization.
+
+```python
+from agi.policy_improver import PolicyImprover, SoftmaxPolicySpace
+from agi.policy_lab import PolicyLab
+
+# Baseline value = V(π_logging) on the production log.
+baseline_value = lab.evaluate(current_router, method="dr").value
+
+imp = PolicyImprover(
+    policy_space=SoftmaxPolicySpace(
+        actions=("haiku", "sonnet", "opus"),
+        feature_names=("difficulty", "tenant_premium"),
+    ),
+    baseline_value=baseline_value,
+    weight_clip=20.0,
+    delta=0.05,
+    reward_range=(0.0, 1.0),
+)
+imp.ingest_from_lab(lab)
+
+result = imp.improve(n_restarts=5, n_iters=200)
+if result.safe:
+    coordinator.adopt(imp.policy_space.to_policy(result.parameters))
+else:
+    # LCB(V_new - V_baseline) did not clear 0 — keep incumbent.
+    log.info("no safe improvement found", lcb=result.improvement_lcb)
+```
+
+Investor framing: *we don't ship a model swap because the average
+looked better last week — we ship it only when the math says the worst
+case across the run is still above the bar we are already hitting.
+Same data, same dollars, with a proof that the next deploy can't
+regress*. See `examples/policy_improver_demo.py`.
 
 ## ConformalPredictor — distribution-free, finite-sample-valid prediction intervals
 
