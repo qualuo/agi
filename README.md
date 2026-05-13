@@ -39,6 +39,7 @@ agi/                # runtime + agent + reference coordinator
   calibration.py    # CalibrationEngine — isotonic/Platt recalibration of p_success
   policy_lab.py     # PolicyLab — off-policy evaluation (IPS/SNIPS/DM/DR/SWITCH-DR)
   conformal.py      # ConformalPredictor — distribution-free, finite-sample-valid prediction intervals (CQR / Mondrian / Jackknife+ / ACI / RAPS)
+  causal.py         # CausalLab — heterogeneous treatment effects (T/S/X/DR-learners, Qini, BLP, permutation test)
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -1021,6 +1022,78 @@ PolicyLab gives a coordination engine confidence intervals on
 *policies*; ConformalPredictor gives the same on *individual
 outcomes*. Together they complete the uncertainty stack:
 calibration → off-policy evaluation → per-decision intervals.
+
+## CausalLab — heterogeneous treatment effects, per-context counterfactuals
+
+`agi.causal.CausalLab` is the layer above PolicyLab. PolicyLab answers
+"what is the *average* lift of switching policies on the traffic we
+logged?" CausalLab answers a sharper question: **for this specific
+context, what is the counterfactual lift of action τ versus baseline
+action β?** That object is the Conditional Average Treatment Effect:
+
+    τ(c) := E[Y(τ) − Y(β) | C = c]
+
+It is the routing primitive a coordination engine wants. Investor
+framing: *we don't just know our new policy beats the old one on
+average; we know which 23% of incoming requests it wins on, which 12%
+it loses, and we route accordingly — with finite-sample confidence
+intervals.*
+
+The lab implements the four canonical CATE meta-learners:
+
+- **T-learner** — separate outcome regressors per arm. Robust when arms
+  are balanced; high variance otherwise.
+- **S-learner** — single model with treatment as a feature (plus
+  action × feature interactions, so it can express heterogeneity
+  under a linear backbone).
+- **X-learner** (Künzel et al. 2019) — cross-fit imputed treatment
+  effects combined via propensity weights. SOTA when arms are
+  unbalanced — exactly the LLM-routing case.
+- **DR-learner** (Kennedy 2020) — doubly-robust pseudo-outcome
+  regression with influence-function CIs for free.
+
+On top of CATE the lab ships **Qini uplift curves** (Radcliffe 2007),
+a **permutation test for heterogeneity** (Chernozhukov-Demirer-Duflo
+2018), and a **Best Linear Predictor of CATE** that drops out
+interpretable, OLS-style rules a coordinator can ship without an ML
+stack.
+
+```python
+from agi.causal import CausalLab, LEARNER_DR
+from agi.policy_lab import LoggedEvent
+
+lab = CausalLab(treatment="cheap-arm", control="strong-arm")
+for ev in policy_lab.events():
+    lab.record(ev)
+
+# Per-request counterfactual lift, with a 95% CI.
+point = lab.cate(context={"task_difficulty": 0.7}, learner=LEARNER_DR)
+if point.ci_low > 0:
+    route_to("cheap-arm")    # provably positive lift here
+elif point.ci_high < 0:
+    route_to("strong-arm")   # provably negative; keep the strong model
+
+# Sanity check: is *any* heterogeneity present?
+het = lab.test_heterogeneity(n_permutations=200)
+if not het.is_heterogeneous:
+    # The new policy moves the average; it does not segment.
+    fall_back_to_average_policy()
+
+# Interpretable rule for the coordinator.
+blp = lab.best_linear_predictor()
+print(blp.intercept.coef, [c.feature for c in blp.coefficients])
+```
+
+The lab is stdlib-only, drains directly from a `PolicyLab` log via
+`attach_to_policy_lab(...)`, and is honest about positivity
+violations (it surfaces a `support_score` per context and a `low_data`
+flag when the effective sample size is below floor). See
+`examples/causal_demo.py` for the end-to-end coordination-engine flow.
+
+CausalLab × PolicyLab × ConformalPredictor is the full uncertainty
+stack: average effects, per-context effects, and per-outcome
+intervals — all distribution-free, all stdlib, all callable inline
+from a coordination engine.
 
 ## HTTP / SSE surface
 
