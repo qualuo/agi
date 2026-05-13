@@ -36,6 +36,8 @@ agi/                # runtime + agent + reference coordinator
   experiments.py    # ExperimentRunner — A/B experiments with guardrails (Bayesian decisions)
   portfolio.py      # PortfolioOptimizer — fixed-budget allocation across many tickets
   attest.py         # AttestationLedger — tamper-evident, HMAC-signed receipt chain
+  calibration.py    # CalibrationEngine — isotonic/Platt recalibration of p_success
+  policy_lab.py     # PolicyLab — off-policy evaluation (IPS/SNIPS/DM/DR/SWITCH-DR)
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -912,6 +914,56 @@ See `examples/experiments_demo.py` for the four-scene story:
 clear win ships → clear loss kills → guardrail breach overrides a
 tempting cost win → 50 live FakeAgent tickets routed through the
 driver's `submit_with_experiment(...)` path.
+
+## PolicyLab — off-policy evaluation of routing policies
+
+`agi.policy_lab.PolicyLab` lets a coordination engine **backtest any
+new routing / admission / pricing policy** against the production
+receipt log, *without spending a real dollar*. It implements the
+contextual-bandit OPE workhorse stack:
+
+- **IPS** (Horvitz-Thompson) — unbiased, high variance.
+- **SNIPS** (self-normalised IPS) — biased, much lower variance; the
+  production OPE default.
+- **DM** (direct method) — fit a reward model `r̂(c, a)` and integrate.
+- **DR** (doubly-robust, Dudík-Langford-Li 2011) — unbiased if either
+  the propensity *or* the reward model is correct.
+- **SWITCH-DR** (Wang-Agarwal-Dudík 2017) — falls back to DM on
+  heavy-tailed importance weights; provably lower MSE.
+- Confidence intervals via **empirical Bernstein** (Maurer-Pontil 2009)
+  on the per-event influence functions, plus Student-t for comparison.
+
+```python
+from agi.policy_lab import PolicyLab, PolicyCandidate, LinearRewardModel
+
+lab = PolicyLab(reward_model=LinearRewardModel(ridge=0.1))
+for receipt in driver.tickets():        # drain the production log
+    lab.record(LoggedEvent.from_receipt(receipt))
+
+est = lab.evaluate(my_new_router, method="dr")
+# Estimate(value=0.84, ci_low=0.83, ci_high=0.85, n=5000, n_eff=4250,
+#          diagnostics={mean_weight: 1.0, max_weight: 50.0, ...})
+
+cmp = lab.compare(
+    target=PolicyCandidate("v2", new_router),
+    baseline=PolicyCandidate("v1", current_router),
+    method="dr",
+)
+# cmp.recommend ∈ {ship, kill, inconclusive}; cmp.lift_ci_low > 0 → ship.
+
+rec = lab.recommend(
+    candidates=[c_v1, c_v2, c_v3],
+    method="dr",
+    cost_per_action={"cheap": 0.001, "smart": 0.10},
+)
+# rec.frontier = Pareto-best (reward, cost) candidates
+# rec.best     = single arg-max recommendation
+```
+
+Investor framing: *we run last week's traffic through ten candidate
+policies in silico and ship the one with the highest expected reward
+under a calibrated confidence interval — before paying for a single
+live A/B*. See `examples/policy_lab_demo.py`.
 
 ## HTTP / SSE surface
 
