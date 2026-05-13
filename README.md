@@ -1712,6 +1712,127 @@ See `tests/test_arbiter.py` for the verified statistical contracts
 (PAC coverage, sample-complexity monotonicity in δ and gap,
 Track-and-Stop vs. KL-LUCB head-to-head).
 
+## CausalDiscoverer — structure learning from observational data
+
+`CausalLab` estimates **effects under a given DAG**. `CausalDiscoverer`
+learns the **DAG itself** from observational logs. The two are dual:
+
+  - CausalDiscoverer answers *"which features causally drive outcomes,
+    and which are spurious confounders?"*
+  - CausalLab answers *"for this context, what is the per-arm lift?"*
+
+Together they close a loop a coordination engine has so far had to
+fake: discover → identify → estimate.
+
+```
+observational logs  ──►  CausalDiscoverer ──► CPDAG ──► CausalLab
+                                                  │
+interventions you   ◄─────────────────────  intervention_targets(...)
+run next sprint
+```
+
+### Algorithms
+
+* **PC algorithm** (Spirtes-Glymour-Scheines 1991). Constraint-based.
+  Builds a skeleton via Fisher-z conditional independence tests, then
+  orients v-structures from the recorded sepsets, then propagates
+  Meek's R1–R4 rules to a CPDAG. We implement **PC-stable**
+  (Colombo-Maathuis 2014): per-edge orientation votes are collected
+  and only unanimous directions are committed, so finite-sample
+  test errors never produce conflicting orientations.
+
+* **GES** (Chickering 2002). Score-based hill-climber with add /
+  remove / **reverse** operators on Gaussian BIC. The reverse
+  operator is essential because BIC is score-equivalent (any two DAGs
+  in the same Markov equivalence class get the same score), so a
+  pure add/remove search can tie-break into the wrong class and stay
+  there. A constraint-based skeleton-refinement pass after
+  convergence (the MMHC hybrid of Tsamardinos-Brown-Aliferis 2006)
+  removes spurious edges hill-climbing couldn't escape and recovers
+  v-structures from the cleaned skeleton.
+
+* **Bootstrap stability** (Friedman-Goldszmidt-Wyner 1999). Run PC or
+  GES on B nonparametric bootstrap resamples and report each edge's
+  inclusion frequency. The resulting confidence is what an operator
+  actually wants to see: "this edge appears in 97% of bootstraps;
+  this one in 38%." Edges below a confidence threshold are dropped.
+
+* **Active intervention selection** (Hauser-Bühlmann 2014).
+  `intervention_targets(cpdag, budget)` ranks variables by the
+  expected number of currently-undirected edges that intervening on
+  them would orient — direct edges incident to the variable, plus
+  edges that fall out via Meek-rule propagation after the direct ones
+  are oriented. The top-K is what a coordinator hands to
+  `ExperimentRunner` for next-sprint experiments.
+
+### Surface
+
+```python
+from agi import CausalDiscoverer, DiscoveryRequest, intervention_targets
+
+discoverer = CausalDiscoverer(event_bus=bus, attestor=ledger)
+report = discoverer.discover(
+    rows, variables,
+    request=DiscoveryRequest(method="bootstrap_pc", n_bootstrap=50,
+                             edge_threshold=0.7, alpha=0.05),
+)
+
+for a, b, kind, conf in report.graph.edge_summary():
+    print(f"{a} {kind} {b}   (confidence {conf:.2f})")
+
+# Minimal sufficient feature set for routing.
+mb = report.graph.markov_blanket("success")
+
+# Next-sprint experiment plan.
+targets = intervention_targets(report.graph, budget=3)
+for t in targets:
+    print(t.variable, t.expected_orientations, t.rationale)
+```
+
+### Composes with
+
+* `CausalLab` — the discovered DAG restricts CATE estimation to
+  parents of the treatment (avoids post-treatment-variable bias).
+* `ExperimentDesigner` — `intervention_targets(...)` is a BOED-style
+  routine: it picks the variables whose intervention maximises
+  expected information about the remaining undirected edges.
+* `Strategist` — Markov blanket of the outcome variable is the
+  minimal sufficient feature set for routing decisions. Strategist's
+  candidate-scoring loop becomes provably more sample-efficient when
+  conditioned on the Markov blanket rather than every available
+  feature.
+* `DriftSentinel` — drift on an edge's marginal correlation is a
+  signal to re-run discovery.
+* `AttestationLedger` — every discovery emits a tamper-evident
+  `causal_discovery.committed` receipt: the input data digest, the
+  method, α / bootstrap settings, the CPDAG, the BIC score. A
+  regulator can replay discovery on the same digest and reproduce
+  the structure.
+* `EventBus` — `causal_discovery.started` / `.tested` /
+  `.edge_dropped` / `.bootstrapped` / `.committed` / `.failed`.
+
+### Investor framing
+
+The most common silent failure of a production AI deployment is
+correlation-as-causation: the runtime conditions on a feature that
+correlates with success this week, so it moves traffic toward where
+the feature is high, the feature stops predicting, and the team
+can't diagnose why the wins evaporated. `CausalDiscoverer` is the
+runtime primitive that catches this — it distinguishes features that
+**causally** drive outcomes from features that are merely
+**conditionally correlated** with them, with finite-sample
+confidence and tamper-evident receipts. The result is a coordination
+engine that doesn't just chase whatever explains last week's data;
+it routes by **why** outcomes happen.
+
+See `tests/test_causal_discovery.py` for the verified contracts (PC
+v-structure recovery, GES + refinement consistency with PC,
+no-conflicting-direction invariant across all bootstraps, Markov
+blanket correctness, active intervention orientation gain).
+`examples/causal_discovery_demo.py` walks through end-to-end on a
+synthetic routing DAG with one true confounder and one spurious
+correlate.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
