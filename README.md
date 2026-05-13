@@ -42,6 +42,7 @@ agi/                # runtime + agent + reference coordinator
   causal.py         # CausalLab — heterogeneous treatment effects (T/S/X/DR-learners, Qini, BLP, permutation test)
   strategist.py     # Strategist — top-level meta-decision API; fuses calibration + conformal + causal + OPE into one risk-adjusted recommendation
   experiment_design.py # ExperimentDesigner — Bayesian Optimal Experiment Design (EIG / BALD / KG / Thompson Top-K / Fedorov D-optimal); picks the next batch of experiments that maximally sharpens the policy per dollar
+  deliberator.py    # Deliberator — adaptive sequential sampling kernel; anytime-valid stopping (WSR confidence sequences) so the runtime spends 1-3 samples on easy queries and escalates on ambiguous ones, with one quality dial α
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -1300,6 +1301,117 @@ policy. With BOED, every dollar buys the **maximum possible**
 information per dollar, with provable optimality bounds. The same
 budget produces a policy that converges faster — which is the only
 dimension of the harness that compounds over time.
+
+## Deliberator — adaptive sequential sampling kernel
+
+Every primitive above answers a question *before* compute starts:
+`Strategist` picks the candidate, `ExperimentDesigner` picks the explore
+budget, `PreflightEstimator` predicts cost. None of them answer the
+runtime's *innermost* question:
+
+> "I've drawn k stochastic samples from this model. The samples cluster
+> into a few candidate answers. Should I draw one more, commit to the
+> modal answer, escalate to a stronger model, or give up?"
+
+That question shows up everywhere a runtime makes adaptive-compute
+decisions: self-consistency sampling, best-of-N against a reward model,
+cross-model ensembling, online tool-call refinement, speculative-decoding
+stopping. The naive answer — "draw a fixed K and majority-vote" —
+overspends on easy queries and underspends on hard ones. The wishful
+answer — "stop the first time the leading cluster has a plurality" — has
+a known and ugly failure mode: classical confidence intervals lose
+validity under data-dependent stopping. (P-hacking is the same bug.)
+
+`Deliberator` solves both jointly. Sample-by-sample it maintains:
+
+* a **Dirichlet-Multinomial Bayesian posterior** over candidate-answer
+  clusters,
+* an **anytime-valid (1 − α)-lower confidence bound** on the probability
+  of the leading cluster via the Waudby-Smith–Ramdas (2024)
+  predictable-mixture capital process — the current state of the art
+  for finite-sample mean estimation of bounded random variables, and
+* an **expected-information-gain** estimate for one more sample (the
+  expected reduction in posterior entropy).
+
+It stops when *any* of these fire — and reports *which* fired:
+
+| Stop reason          | When it fires                                                | What the coordinator does  |
+|----------------------|--------------------------------------------------------------|----------------------------|
+| `STOP_EVIDENCE`      | LCB on top cluster ≥ commit threshold (anytime-valid)        | commit                     |
+| `STOP_CONVERGENCE`   | EIG below floor with ≥ 2 clusters: posterior stable but ambiguous | escalate to stronger model |
+| `STOP_BUDGET`        | `max_samples` / `max_cost` hit                               | defer                      |
+| `STOP_INFEASIBLE`    | sampler produced zero samples                                | abort                      |
+
+```python
+from agi import Deliberator, DeliberatorSample, STOP_EVIDENCE, STOP_CONVERGENCE
+
+deliberator = Deliberator(bus=bus)
+
+def sample_once():
+    out = agent.chat(prompt, temperature=0.7)
+    return DeliberatorSample(
+        answer=out.text,
+        cluster_key=canonicalize(out.text),
+        cost=out.usage.cost_usd,
+    )
+
+delib = deliberator.deliberate(
+    sample_once,
+    max_samples=16,
+    max_cost=0.50,
+    alpha=0.05,
+    commit_threshold=0.5,
+    eig_floor=0.005,
+)
+
+if delib.stop_reason == STOP_EVIDENCE:
+    coordinator.commit(delib.answer, cost=delib.cost)
+elif delib.stop_reason == STOP_CONVERGENCE:
+    coordinator.escalate(delib)         # ambiguous; route to a stronger model
+else:
+    coordinator.defer(delib)
+```
+
+What it gives a coordination engine:
+
+* **One dial — quality level α — and the runtime decides how much
+  compute each query deserves.** Confident queries finish in a handful
+  of samples; ambiguous queries are flagged for escalation before they
+  burn budget. The `examples/deliberator_demo.py` workload shows 40%
+  median compute savings vs. fixed K=16 across a difficulty mix.
+* **Statistically honest early stopping.** The LCB is valid at every
+  step under any stopping rule. Classical fixed-n CIs lose validity
+  under early stopping; ours does not. Citation: Waudby-Smith & Ramdas,
+  *Estimating means of bounded random variables by betting*, JMLR 2024.
+* **A typed event stream.** `deliberator.started / sampled / committed /
+  escalated / exhausted` — the runtime's per-sample telemetry channel
+  for budget enforcement, observability, and trace logging.
+* **A receipt** with a SHA-256 content hash that an `AttestationLedger`
+  can chain into a tamper-evident replay log.
+* **Self-evaluation.** `coverage_report()` checks that
+  `STOP_EVIDENCE` deliberations achieved their nominal (1 − α) success
+  rate — if they didn't, the underlying sampler violates exchangeability
+  and the coordinator should pause or refit.
+
+Composition with the rest of the stack:
+
+* `Strategist.recommend(...)` returns the *ex-ante* verdict —
+  SINGLE / HEDGE / EXPLORE / DEFER / REJECT. `Deliberator` is the
+  *in-flight* kernel that decides whether the chosen candidate's
+  output is good enough to ship or needs escalation.
+* `CalibrationEngine` subscribers can watch `deliberator.observed`
+  events to refine the runtime's view of when commits succeed.
+* `RiskController` and `Deliberator` share the WSR primitives but
+  answer orthogonal questions: RiskController picks a fixed threshold
+  with population-level FWER control; Deliberator picks how many
+  samples to draw on a single query with anytime-valid per-query
+  control.
+
+Investor framing: the same runtime that confidently dispatches a
+trivial query in 2 samples will spend 16 samples on a hard one — and
+escalate to Opus when even 16 doesn't break the tie. Adaptive compute
+across the fleet, statistically defensible, one dial for the
+coordinator.
 
 ## HTTP / SSE surface
 
