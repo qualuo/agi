@@ -46,6 +46,7 @@ agi/                # runtime + agent + reference coordinator
   deliberator.py    # Deliberator — adaptive sequential sampling kernel; anytime-valid stopping (WSR confidence sequences) so the runtime spends 1-3 samples on easy queries and escalates on ambiguous ones, with one quality dial α
   drift.py          # DriftSentinel — anytime-valid sequential drift detection (Page-Hinkley CUSUM + BOCPD changepoint posterior + Shin-Ramdas-Rinaldo e-process); the trust-gate that tells the coordinator when calibration/conformal/policy estimates have gone stale
   arbiter.py        # Arbiter — fixed-confidence Best-Arm Identification (Track-and-Stop / KL-LUCB / Sequential Halving); identifies the winning model/prompt/policy at (ε, δ)-PAC with asymptotically optimal sample complexity, the cross-strategy dual of Deliberator
+  cartographer.py   # Cartographer — zone-of-proximal-development curriculum kernel; Beta-Binomial competence with Wilson CIs + Oudeyer learning-progress + prereq-DAG + Sviridenko submodular knapsack; the *what-should-I-learn-next* primitive — upstream of Arbiter
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -1832,6 +1833,111 @@ blanket correctness, active intervention orientation gain).
 `examples/causal_discovery_demo.py` walks through end-to-end on a
 synthetic routing DAG with one true confounder and one spurious
 correlate.
+## Cartographer — zone-of-proximal-development curriculum kernel
+
+`Arbiter` answers *"which of these K is best?"*. `Cartographer` answers
+the upstream meta-question every long-running runtime that *learns*
+eventually has to face: **which task should we attempt next?**. Without
+an answer, the runtime drifts — overspending on tasks it already
+masters, ignoring tasks just beyond reach, never discovering the ones
+locked behind unfilled prerequisites.
+
+Three literatures converged on the same answer:
+
+* **Vygotsky's Zone of Proximal Development.** Learning fastest in
+  tasks the learner cannot yet do alone but can do with scaffolding.
+  The frontier of competence is where growth happens.
+* **Oudeyer & Kaplan's Intrinsic Motivation Systems.** The agent that
+  maximises its own *learning progress* — the rate of decrease of
+  prediction error — develops more general competencies than one
+  driven by extrinsic reward.
+* **Graves et al.'s Automated Curriculum Learning.** Treats
+  curriculum as a non-stationary bandit over tasks where reward is
+  gain-in-competence; EXP3.S handles the non-stationarity.
+
+`Cartographer` maintains a Beta-Binomial posterior over competence per
+task, derives an anytime-valid Wilson confidence interval, computes a
+signed learning-progress signal on a sliding window, and emits
+curriculum recommendations under six policies:
+
+* `POLICY_LP` — Oudeyer learning-progress greedy: `argmax v_i · |LP_i|`
+* `POLICY_UCB` — Wilson upper-bound on competence: `argmax v_i · U_i`
+* `POLICY_INFOGAIN` — one-step posterior-variance reduction per cost
+* `POLICY_THOMPSON` — Beta-sample → rank by `v_i · μ̃_i`
+* `POLICY_KNAPSACK` — Sviridenko cost-greedy submodular knapsack at a
+  hard budget B, `(1 − 1/e)`-of-OPT when per-item costs are small
+* `POLICY_ROUND_ROBIN` — deterministic frontier rotation for cold start
+
+Statuses partition tasks into `LOCKED` (unmet prereqs) / `NOVICE`
+(`U < entry`) / `FRONTIER` (the ZPD) / `MASTERED` (`L ≥ mastery`) /
+`FRAGILE` (previously mastered, mean has dropped). Mastery propagates
+through the prereq DAG on every `tick()`; cycles are rejected at
+registration.
+
+```python
+from agi.cartographer import (
+    Cartographer, POLICY_LP, POLICY_KNAPSACK,
+)
+
+cart = Cartographer(bus=bus, attestor=attestor,
+                     mastery_threshold=0.8, entry_threshold=0.2)
+cart.register_task("add-1d", value=1.0, cost=0.002)
+cart.register_task("add-2d", value=2.0, cost=0.003, prereqs=("add-1d",))
+cart.register_task("long-div", value=8.0, cost=0.012,
+                    prereqs=("add-2d", "mul-2d"))
+
+for outcome in driver.completed_for("add-1d"):
+    cart.observe("add-1d", float(outcome.success))
+
+# Sample-efficient: pick the frontier task with the largest LP signal.
+curriculum = cart.recommend(policy=POLICY_LP, k=4)
+
+# Budget-aware: max total LP × value under a hard cost cap.
+curriculum = cart.recommend(policy=POLICY_KNAPSACK, k=10, budget=0.50)
+
+for item in curriculum.items:
+    coordinator.queue(item.task_id, pulls=8)
+```
+
+Composition with the rest of the stack:
+
+* `Strategist` answers "what should I do *for this ticket*?";
+  Cartographer answers "what should I do *next overall*?". Every N
+  tickets the coordinator calls `cartographer.recommend(...)` to
+  update the active task set; Strategist routes within it.
+* `Arbiter`: Cartographer's frontier subset becomes Arbiter's
+  candidate arms. Cartographer says *which K are worth running*;
+  Arbiter says *which of those K is best*.
+* `ExperimentDesigner`: the Bayesian dual. EIG over a model vs.
+  posterior-variance reduction over a task — both feedable via the
+  `score_fn=` hook on `recommend`.
+* `DriftSentinel`: subscribe to a mastered task's reward stream; on
+  drift the coordinator calls `cart.regress(task_id)` and the
+  curriculum re-opens the task. Status flips to `FRAGILE` when the
+  empirical mean drops by more than `regression_margin`.
+* `AttestationLedger`: mastery transitions emit `cartographer.advanced`
+  with a content-hash receipt. A third party can replay the trace
+  and reproduce the mastery decision.
+* `PolicyImprover`: before a mastery transition ships, the
+  coordinator HCPI-certifies the induced policy. If unsafe,
+  Cartographer keeps the task on the frontier.
+
+Investor framing: a runtime that doesn't pick its own training
+targets is a runtime that needs a human in the loop for the
+*hardest* part of learning — knowing what to learn next.
+`Cartographer` is that human-in-the-loop replaced by an anytime-valid
+statistical kernel: it knows what it knows (Wilson CI), knows what
+it's still learning (LP signal), and knows what it can't yet attempt
+(prereq DAG). On a 7-task curriculum the demo
+(`examples/cartographer_demo.py`) walks the system from cold start to
+6/7 mastered in ~120 batched observations per task, demotes a drifted
+skill, and prints a calibration report comparing predicted competence
+to latent ability.
+
+See `tests/test_cartographer.py` for the verified contracts (Wilson /
+Clopper-Pearson CIs, learning-progress monotonicity, prereq-DAG cycle
+rejection, fragile-status on regression, snapshot/restore round-trip,
+end-to-end mastery propagation).
 
 ## HTTP / SSE surface
 
