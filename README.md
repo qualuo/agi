@@ -41,6 +41,7 @@ agi/                # runtime + agent + reference coordinator
   conformal.py      # ConformalPredictor — distribution-free, finite-sample-valid prediction intervals (CQR / Mondrian / Jackknife+ / ACI / RAPS)
   causal.py         # CausalLab — heterogeneous treatment effects (T/S/X/DR-learners, Qini, BLP, permutation test)
   strategist.py     # Strategist — top-level meta-decision API; fuses calibration + conformal + causal + OPE into one risk-adjusted recommendation
+  experiment_design.py # ExperimentDesigner — Bayesian Optimal Experiment Design (EIG / BALD / KG / Thompson Top-K / Fedorov D-optimal); picks the next batch of experiments that maximally sharpens the policy per dollar
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -1212,6 +1213,93 @@ calibrated uncertainty* and reports honestly on its own track record."
 It is stdlib-only; an 8-candidate decision with all forecasters wired
 runs in single-digit milliseconds. See `examples/strategist_demo.py`
 for the five-verdict walkthrough.
+
+## ExperimentDesigner — Bayesian Optimal Experiment Design
+
+`Strategist` decides what to do *with the data we have*. The
+coordination engine still has to answer the meta-question above the
+strategist:
+
+> "Of the N candidate tickets / traces / contexts we *could* run next,
+> which subset, in what order, will most sharpen the policy per dollar?"
+
+Spending the entire learning budget on the highest-EV ticket is locally
+optimal but globally wasteful: the runtime ends up data-rich on actions
+it was already confident in, and data-poor on the marginal cases that
+actually move policy value. `ExperimentDesigner` is the principled
+answer (Lindley 1956; Chaloner-Verdinelli 1995). The objective is the
+**Expected Information Gain** between a design `d` and its outcome `y`
+under the current parameter posterior:
+
+```
+EIG(d) = E_{θ, y ~ p(θ) p(y|θ,d)} [ log p(y|θ,d) − log p(y|d) ]
+       = H[Y|d] − E_θ[ H[Y|θ,d] ]    (mutual information I(Y; Θ | d))
+```
+
+The runtime ships everything needed to compute and act on it:
+
+| Primitive | Reference | What it answers |
+|---|---|---|
+| `eig_discrete` | Lindley 1956 | Exact EIG for finite Θ × Y. The truth tests pin the MC estimators to. |
+| `eig_nested_mc` | Foster et al. 2019 | NMC estimator for general black-box models; tracks the O(1/N_inner) bias bound explicitly. |
+| `bald_score` | Houlsby et al. 2011 | Decomposes total predictive entropy into **epistemic** (informative — chase it) and **aleatoric** (irreducible — don't bother) for an ensemble. |
+| `knowledge_gradient` | Frazier-Powell-Dayanik 2008 | One-step value-of-information acquisition under a Gaussian posterior. Knows the *value* of learning, not just the bits. |
+| `thompson_top_k` | Russo 2020 | Diversified, posterior-consistent batch acquisition with no tuning. |
+| `BayesianBatchPlanner` | Minoux 1978 (lazy); Sviridenko 2004 (knapsack) | Submodular greedy with the (1 − 1/e) optimality bound — equal-cost or budget-constrained. |
+| `DOptimalDesigner` | Fedorov 1972 | D-, A-, and E-optimal designs over a row pool. The classical answer for picking informative covariates. |
+
+Example — a coordination engine that has logged a pool of candidate
+tickets to run as exploration calls:
+
+```python
+from agi import ExperimentDesigner, DesignRequest, ExperimentCandidate
+
+candidates = [
+    ExperimentCandidate(
+        id=ticket.id,
+        eig=designer.score_bald(ticket.committee_predictions).bald,
+        cost=ticket.est_cost_usd,
+    )
+    for ticket in unlabeled_pool
+]
+
+designer = ExperimentDesigner()
+resp = designer.design(DesignRequest(
+    candidates=candidates,
+    budget=12.50,            # explore-budget for this batch
+    min_eig_per=1e-3,        # filter out aleatoric-only candidates
+))
+
+for ticket_id in resp.plan.selected:
+    coordinator.dispatch_with_logging(ticket_id)
+
+# resp.eig_per_dollar tells the coordinator whether the next dollar of
+# explore-budget is worth spending; resp.binding_constraint says which
+# constraint stopped this batch (k / budget / min_eig_per).
+```
+
+Composition with the rest of the stack:
+
+* `PolicyLab` tells you what you'd earn from a new policy on existing
+  data. `ExperimentDesigner` decides which **next** contexts to log so
+  next week's `PolicyLab` answer is sharper.
+* `Strategist.recommend(...)` returns `STRAT_EXPLORE` when the data is
+  too thin to commit. `ExperimentDesigner` is what makes "explore"
+  honest — it scores which contexts deserve the explore budget instead
+  of exploring uniformly.
+* `PortfolioOptimizer` allocates against a known utility surface.
+  `ExperimentDesigner` decides which experiments refine the utility
+  surface itself. They compose: the portfolio reserves a fraction of
+  the budget for designer-selected exploration tickets.
+* `SelfEvalBank` mines a regression suite. The designer picks which of
+  N unlabeled candidate traces are highest-information for the critic.
+
+Investor framing: without principled experiment design, every dollar
+spent on learning buys a *random* amount of information about the
+policy. With BOED, every dollar buys the **maximum possible**
+information per dollar, with provable optimality bounds. The same
+budget produces a policy that converges faster — which is the only
+dimension of the harness that compounds over time.
 
 ## HTTP / SSE surface
 
