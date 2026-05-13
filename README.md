@@ -43,6 +43,7 @@ agi/                # runtime + agent + reference coordinator
   strategist.py     # Strategist — top-level meta-decision API; fuses calibration + conformal + causal + OPE into one risk-adjusted recommendation
   experiment_design.py # ExperimentDesigner — Bayesian Optimal Experiment Design (EIG / BALD / KG / Thompson Top-K / Fedorov D-optimal); picks the next batch of experiments that maximally sharpens the policy per dollar
   deliberator.py    # Deliberator — adaptive sequential sampling kernel; anytime-valid stopping (WSR confidence sequences) so the runtime spends 1-3 samples on easy queries and escalates on ambiguous ones, with one quality dial α
+  drift.py          # DriftSentinel — anytime-valid sequential drift detection (Page-Hinkley CUSUM + BOCPD changepoint posterior + Shin-Ramdas-Rinaldo e-process); the trust-gate that tells the coordinator when calibration/conformal/policy estimates have gone stale
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -1413,6 +1414,118 @@ escalate to Opus when even 16 doesn't break the tie. Adaptive compute
 across the fleet, statistically defensible, one dial for the
 coordinator.
 
+## DriftSentinel — anytime-valid sequential drift detection
+
+Every other forecaster in the stack — `CalibrationEngine`,
+`ConformalPredictor`, `PolicyLab`, `CausalLab`, `Strategist` — assumes
+that the data they were fit on and the data flowing through production
+are exchangeable. The moment the world shifts (a new prompt mix, a
+model swap upstream, a tool change, a tenant going adversarial) that
+assumption silently breaks. Calibrators stay confident, conformal
+intervals stay narrow, policy estimates stay sharp, and the
+coordination engine keeps committing to decisions whose statistical
+foundation has quietly evaporated.
+
+`DriftSentinel` is the runtime primitive that detects exactly this. It
+sits on the event bus, watches any scalar stream of interest — `p_success`
+residuals, `cost` log-ratios, reward signal, critic score, tenant
+outcome rate — and emits a `drift.detected` event the moment the stream
+has shifted by enough that the runtime should treat its other forecasters
+as stale.
+
+The guarantee is **anytime-valid**:
+
+```
+P_H0( ∃ t : sentinel.update(x_t).triggered )  ≤  α.
+```
+
+You can peek between every sample without inflating the false-alarm
+probability. P-hacking and classical sequential testing fail because
+they don't have this property; `DriftSentinel` is built around it.
+
+Three detectors compose:
+
+* **Page-Hinkley CUSUM** — classic, mean-shift sensitive, O(1) per
+  sample. Wald threshold `log(1/α)`.
+* **Bayesian Online Changepoint Detection (BOCPD; Adams-MacKay 2007)**
+  — maintains a posterior over the *current run length* under a
+  Gaussian-NIχ² conjugate predictive. Triggers when posterior mass on
+  `r_t < short_run` exceeds `alarm_mass`. Gives a calibrated
+  changepoint location estimate `τ̂` so the runtime can roll stateful
+  forecasters back to a known-good cut.
+* **Betting Martingale (Waudby-Smith-Ramdas 2024 + Shin-Ramdas-Rinaldo
+  2024)** — the current state of the art for anytime-valid mean testing
+  on bounded random variables. The capital process
+  `K_t = Π (1 + λ_i (x_i − μ_0))` with predictable aGRAPA bets
+  `λ_i` is a non-negative martingale under H_0; by Ville's inequality
+  `P(sup_t K_t ≥ 1/α) ≤ α`. Two processes (upper/lower) union-bounded
+  at α/2 give a two-sided test, distribution-free.
+
+The composition gives the runtime *both* fast detection of obvious
+shifts (CUSUM/BOCPD typically trigger first) *and* a nonparametric
+anytime-valid guarantee that survives heavy tails, mis-specified
+predictives, or non-Gaussian noise.
+
+```python
+from agi.drift import DriftSentinel, DRIFT_DETECTED
+
+sentinel = DriftSentinel(
+    reference_mean=0.85,        # calibrated baseline (e.g. p_success)
+    reference_var=0.02,
+    value_range=(0.0, 1.0),     # bounded outcome
+    alpha=0.01,                 # ≤ 1% false-alarm rate uniformly over time
+    bus=bus,
+    name="p_success",
+)
+
+bus.subscribe(kind=DRIFT_DETECTED, callback=lambda e: calibration.refit())
+bus.subscribe(kind=DRIFT_DETECTED, callback=lambda e: conformal.invalidate_calibration())
+bus.subscribe(kind=DRIFT_DETECTED, callback=lambda e: policy_lab.flag_stale())
+
+for ticket in driver.completed():
+    obs = sentinel.update(ticket.actual_p_success)
+    if obs.triggered:
+        coordinator.enter_safe_mode(
+            reason=obs.method,
+            since=obs.changepoint_estimate,
+        )
+```
+
+The coordination engine treats `sentinel.is_drift_active()` as a
+kill-switch on aggressive routing decisions. Until the sentinel resets
+— typically after the calibrators have refit on the post-changepoint
+window — the coordinator falls back to the safe-default action.
+
+Composition with the rest of the stack:
+
+* `CalibrationEngine` refits on the post-changepoint window using
+  `obs.changepoint_estimate` to pick the cut.
+* `ConformalPredictor` invalidates its calibration set on drift and
+  falls back to its ACI variant for online recovery.
+* `PolicyLab` / `CausalLab` flag their stored estimates as stale; the
+  `Strategist` downweights their evidence in its EV computation until
+  enough post-drift data has accumulated.
+* `AttestationLedger` records the drift event with the witness sample
+  and running statistic, so an auditor can replay the detection bit-
+  for-bit.
+* `Coordinator` / `AutonomousLoop` enter a safe-mode where new tickets
+  route through the conservative baseline action and risky exploration
+  is paused.
+
+`DriftSentinelGroup` multiplexes many sentinels under one surface —
+per-tenant, per-model, per-tool — so the coordinator can ask "which
+streams are drifting right now?" in O(N) and route accordingly.
+
+Investor framing: the most damaging failure mode of a production AI
+deployment is silent regression — the model still produces output, the
+SLO dashboard still looks green, but the underlying capability has
+quietly degraded. `DriftSentinel` is the first-class runtime primitive
+that catches this with a finite-sample, distribution-free, peek-anytime
+guarantee. One dial (α) controls how aggressive the trust gate is.
+Honest engineering for an honest dashboard.
+
+See `examples/drift_demo.py` for an end-to-end run.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
@@ -1510,6 +1623,7 @@ The bus emits typed events. Coordinators pattern-match on `kind`:
 - `plan.scheduled` / `plan.step.ready` / `plan.step.running`
 - `plan.step.completed` / `plan.step.failed` / `plan.step.retry`
 - `plan.completed` / `plan.failed` / `plan.budget_exhausted` / `plan.cancelled`
+- `drift.started` / `drift.observation` / `drift.detected` / `drift.reset` / `drift.cleared`
 - `error` — including `CostCeilingExceeded` when budget runs out
 
 Subagent token usage rolls up into the parent session for honest accounting.
