@@ -351,6 +351,25 @@ from agi.scheduler import (
 from agi.selfeval import EvalItem, EvalReport, SelfEvalBank
 from agi.skillmine import SkillCandidate, mine_skills, propose_skill_from_cluster
 from agi.skills import Skill, SkillLibrary
+from agi.strategist import (
+    CONF_HIGH as STRAT_CONF_HIGH,
+    CONF_LOW as STRAT_CONF_LOW,
+    CONF_MEDIUM as STRAT_CONF_MEDIUM,
+    Candidate as StrategyCandidate,
+    CandidateForecast,
+    CoverageReport as StrategistCoverageReport,
+    KNOWN_STRATEGIES,
+    STRATEGIST_OBSERVED,
+    STRATEGIST_RECOMMENDED,
+    STRATEGIST_REFIT,
+    STRAT_DEFER,
+    STRAT_EXPLORE,
+    STRAT_REJECT,
+    Strategist,
+    StrategyConstraints,
+    StrategyOutcome,
+    StrategyRecommendation,
+)
 from agi.tasks import Task, TaskQueue, TaskRunner, submit_task
 from agi.toolsynth import SynthesizedTool, ToolSynthError, ToolSynthRegistry
 from agi.world_model import Observation, WorldModel
@@ -647,4 +666,22 @@ __all__ = [
     "LEARNER_X",
     "UpliftBucket",
     "UpliftReport",
+    # --- Strategist: top-level meta-decision API for coordination engine ---
+    "STRATEGIST_OBSERVED",
+    "STRATEGIST_RECOMMENDED",
+    "STRATEGIST_REFIT",
+    "STRAT_CONF_HIGH",
+    "STRAT_CONF_LOW",
+    "STRAT_CONF_MEDIUM",
+    "STRAT_DEFER",
+    "STRAT_EXPLORE",
+    "STRAT_REJECT",
+    "Strategist",
+    "StrategyCandidate",
+    "StrategyConstraints",
+    "StrategyOutcome",
+    "StrategyRecommendation",
+    "CandidateForecast",
+    "StrategistCoverageReport",
+    "KNOWN_STRATEGIES",
 ]

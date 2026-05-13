@@ -40,6 +40,7 @@ agi/                # runtime + agent + reference coordinator
   policy_lab.py     # PolicyLab — off-policy evaluation (IPS/SNIPS/DM/DR/SWITCH-DR)
   conformal.py      # ConformalPredictor — distribution-free, finite-sample-valid prediction intervals (CQR / Mondrian / Jackknife+ / ACI / RAPS)
   causal.py         # CausalLab — heterogeneous treatment effects (T/S/X/DR-learners, Qini, BLP, permutation test)
+  strategist.py     # Strategist — top-level meta-decision API; fuses calibration + conformal + causal + OPE into one risk-adjusted recommendation
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -1094,6 +1095,123 @@ CausalLab × PolicyLab × ConformalPredictor is the full uncertainty
 stack: average effects, per-context effects, and per-outcome
 intervals — all distribution-free, all stdlib, all callable inline
 from a coordination engine.
+
+## Strategist — top-level meta-decision API
+
+`agi.strategist.Strategist` is the surface a coordination engine
+actually integrates against. The runtime's seven forecasters
+(`PreflightEstimator`, `CalibrationEngine`, `ConformalPredictor`,
+`CausalLab`, `PolicyLab`, `PortfolioOptimizer`, `TicketOracle`) each
+answer a precise statistical question. None of them on their own answers
+the operational one a coordination engine has to make turn after turn:
+
+> *"Given these candidate actions, this context, this SLO, and what
+> we have learned so far, what is the right thing to do, and how
+> confident are we in the answer?"*
+
+`Strategist` is that one call. It fuses every wired forecaster into a
+structured `StrategyRecommendation` carrying one of five verdicts:
+
+| Strategy | When | What the coordinator does |
+|----------|------|---------------------------|
+| `single` | One candidate's calibrated `p_success` meets the SLO and `EV_LB ≥ 0` | dispatch the single arm |
+| `hedge`  | No single arm meets the target; a parallel set does and fits budget | race the K cheapest arms |
+| `explore`| Best mean EV is positive *but* the arm has insufficient evidence | run with logging for information value |
+| `defer`  | Mean EV positive but lower-bound EV negative under risk-aversion | wait for more signal |
+| `reject` | No feasible plan; all candidates over budget or under floor | tell the caller to abort |
+
+The math (razor's-edge of the OPE / risk-quantification literature):
+
+  - **Calibrated `p_success`** via `CalibrationEngine.calibrate(...)`.
+  - **Conformal cost upper bound** via
+    `ConformalPredictor.predict_interval(...)` — Mondrian when
+    candidates carry a `group`, split otherwise. Distribution-free,
+    finite-sample-valid.
+  - **CATE vs. baseline** via `CausalLab.cate(context, learner=DR)`
+    — doubly-robust influence-function CIs. Candidates with
+    confidently negative CATE are flagged.
+  - **OPE value** via `PolicyLab.evaluate(...)` — DR (with SNIPS
+    fallback for heavy-tailed importance weights).
+  - **Bayesian model averaging** across heterogeneous estimators
+    (calibrated-prior, DR-OPE, SNIPS-OPE) by inverse variance. The
+    more confident estimator dominates; disagreement contributes to
+    the candidate's `risk_score`.
+  - **Risk-adjusted EV:**
+
+        EV     = p_cal · payoff − (1 − p_cal) · refund − cost_mean
+        EV_LB  = p_cal_lower · payoff − (1 − p_cal_lower) · refund
+                  − cost_p95 − λ · (cost_p95 − cost_mean)
+
+    `EV_LB` is what gets ranked. Over-confident point estimates
+    cannot whiplash a coordinator into a bad bet.
+
+  - **Pareto frontier** across `(calibrated_p_success ↑, cost_p95 ↓)`
+    so a UI can render a leaderboard, not just the winner.
+
+  - **Provenance** via `AttestationLedger.append(...)` — every
+    recommendation carries a 64-char `attestation_hash` a coordinator
+    can publish for replay or audit.
+
+  - **Self-evaluation:** `observe(rec, outcome)` forwards realised
+    outcomes into every wired forecaster *and* the strategist's own
+    log. `strategist.coverage_report()` then reports the strategist's
+    own calibration (Brier / ECE on `p_success`, cost-p95 breach rate,
+    EV bound coverage, per-strategy realised vs. predicted EV).
+
+```python
+from agi.strategist import Strategist, Candidate, StrategyConstraints, StrategyOutcome
+
+strat = Strategist(
+    calibration=cal_engine,
+    conformal=cost_conformal,
+    causal=causal_lab,
+    policy_lab=pol_lab,
+    ledger=attest_ledger,
+    baseline_action_id="claude-opus-4-7",
+)
+
+rec = strat.recommend(
+    candidates=[
+        Candidate(id="haiku",  raw_p_success=0.74, raw_cost_usd=0.05, samples=80),
+        Candidate(id="sonnet", raw_p_success=0.85, raw_cost_usd=0.18, samples=80),
+        Candidate(id="opus",   raw_p_success=0.92, raw_cost_usd=0.40, samples=80),
+    ],
+    constraints=StrategyConstraints(
+        target_p_success=0.95,
+        max_cost_usd=0.50,
+        payoff_usd=2.00,
+        risk_aversion=1.5,
+    ),
+    context={"task_difficulty": 0.7, "tenant": "acme"},
+)
+
+if rec.strategy == "single":
+    coordinator.dispatch(rec.primary.candidate)
+elif rec.strategy == "hedge":
+    coordinator.hedge([a.candidate for a in rec.hedged_arms])
+elif rec.strategy == "explore":
+    coordinator.dispatch_with_logging(rec.primary.candidate)
+else:
+    coordinator.defer_or_reject(rec.strategy, rec.rationale)
+
+# Close the loop — feed the realised outcome into every wired layer.
+strat.observe(rec, StrategyOutcome(
+    recommendation_id=rec.id,
+    chosen_arm_id="sonnet",
+    success=True,
+    cost_usd=0.17,
+))
+
+# Honest self-eval (Brier / ECE / cost_p95 breach rate / per-strategy EV).
+print(strat.coverage_report().to_dict())
+```
+
+The strategist is the line between "we have ML primitives in a library"
+and "we have a runtime that *makes provably-safe routing decisions with
+calibrated uncertainty* and reports honestly on its own track record."
+It is stdlib-only; an 8-candidate decision with all forecasters wired
+runs in single-digit milliseconds. See `examples/strategist_demo.py`
+for the five-verdict walkthrough.
 
 ## HTTP / SSE surface
 
