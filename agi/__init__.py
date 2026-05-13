@@ -119,6 +119,26 @@ from agi.calibration import (
     max_calibration_error,
     reliability_bins,
 )
+from agi.conformal import (
+    CONFORMAL_DRIFT,
+    CONFORMAL_FIT,
+    CONFORMAL_OBSERVED,
+    CONFORMAL_PREDICTED,
+    CONFORMAL_REPORT,
+    CalibrationPoint,
+    ConformalPredictor,
+    CoverageReport,
+    GroupCoverage,
+    KNOWN_CLASSIFICATION_METHODS,
+    KNOWN_REGRESSION_METHODS,
+    METHOD_CQR,
+    METHOD_JACKKNIFE_PLUS,
+    METHOD_MONDRIAN,
+    METHOD_RAPS,
+    METHOD_SPLIT,
+    PredictionInterval,
+    PredictionSet,
+)
 from agi.events import Event, EventBus
 from agi.experiments import (
     Assignment,

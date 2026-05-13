@@ -38,6 +38,7 @@ agi/                # runtime + agent + reference coordinator
   attest.py         # AttestationLedger — tamper-evident, HMAC-signed receipt chain
   calibration.py    # CalibrationEngine — isotonic/Platt recalibration of p_success
   policy_lab.py     # PolicyLab — off-policy evaluation (IPS/SNIPS/DM/DR/SWITCH-DR)
+  conformal.py      # ConformalPredictor — distribution-free, finite-sample-valid prediction intervals (CQR / Mondrian / Jackknife+ / ACI / RAPS)
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -964,6 +965,62 @@ Investor framing: *we run last week's traffic through ten candidate
 policies in silico and ship the one with the highest expected reward
 under a calibrated confidence interval — before paying for a single
 live A/B*. See `examples/policy_lab_demo.py`.
+
+## ConformalPredictor — distribution-free, finite-sample-valid prediction intervals
+
+`agi.conformal.ConformalPredictor` wraps any base forecaster (cost,
+duration, success-probability, multi-class label) with **provable
+marginal coverage** of the form
+
+    P( y_test ∈ Ĉ(x_test) ) ≥ 1 − α
+
+for *any* underlying data distribution. The only assumption is
+exchangeability of the calibration and test points — dramatically
+weaker than i.i.d. and the assumption that actually holds for a
+runtime in steady state. The lab implements the conformal-prediction
+workhorse stack:
+
+- **Split conformal** (Papadopoulos 2008) — `method="split"`. The
+  baseline. Marginal coverage holds exactly.
+- **CQR — Conformalized Quantile Regression** (Romano-Patterson-
+  Candès 2019) — `method="cqr"`. Heteroscedasticity-aware widths
+  via underlying quantile predictions.
+- **Mondrian conformal prediction** (Vovk-Lindsay-Nouretdinov-
+  Gammerman 2003) — `method="mondrian"`. Group-conditional
+  coverage per tenant / model / task class.
+- **Jackknife+** (Barber-Candès-Ramdas-Tibshirani 2021) —
+  `method="jk+"`. Leave-one-out aggregation with a 1 − 2α coverage
+  bound; no train/calibration split needed.
+- **Adaptive Conformal Inference — ACI** (Gibbs-Candès 2021) —
+  online learning rate on α that recovers long-run coverage under
+  arbitrary distribution shift.
+- **RAPS — Regularized Adaptive Prediction Sets** (Angelopoulos-
+  Bates-Jordan-Malik 2021) — `method="raps"`. Conformal prediction
+  *sets* for multi-class problems, tight on easy points and
+  conservative on hard ones.
+
+```python
+from agi.conformal import ConformalPredictor
+
+cp = ConformalPredictor(target_coverage=0.95, adaptive=True)
+cp.attach_to_driver(driver)        # drain the production receipt stream
+
+pi = cp.predict_interval(
+    prediction=0.42, method="mondrian", group="tenant-a",
+)
+if pi.upper > tenant.budget_remaining:
+    coordinator.defer(ticket)      # admission gate
+```
+
+Investor framing: *with one line, a coordination engine gets a 95%
+upper bound on cost — finite-sample, distribution-free — to bound
+billing risk, gate admission, and detect forecaster drift in real
+time.* See `examples/conformal_demo.py`.
+
+PolicyLab gives a coordination engine confidence intervals on
+*policies*; ConformalPredictor gives the same on *individual
+outcomes*. Together they complete the uncertainty stack:
+calibration → off-policy evaluation → per-decision intervals.
 
 ## HTTP / SSE surface
 
