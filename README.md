@@ -53,6 +53,7 @@ agi/                # runtime + agent + reference coordinator
   negotiator.py     # Negotiator — multi-party allocation as a runtime primitive (utilitarian / egalitarian / leximin / Nash bargaining / Kalai-Smorodinsky / proportional-fair / VCG); KKT-based water-filling on concave-utility, sealed-bid externality on indivisible items; the *fair-and-truthful-split-when-N-tenants-compete-for-the-same-finite-resource* primitive — composes with TicketMarket, TicketEconomist, PortfolioOptimizer, Coalition
   equilibrator.py   # Equilibrator — non-cooperative game-theoretic equilibria as a runtime primitive (Nash / pure Nash / correlated / coarse correlated / minimax / ESS) via support enumeration / multiplicative weights / fictitious play / replicator dynamics / Big-M simplex; exact 2-player zero-sum LP and exploitability (NashConv) on every profile; the *strategically-stable-when-N-agents-don't-cooperate* primitive — composes with Negotiator (threat-points), Coalition (worst-case characteristic function), Robustifier (adversarial games), TicketMarket (incentive-compatibility verification), Strategist (exploitability-penalised meta-decisions)
   transporter.py    # Transporter — optimal transport as a runtime primitive (Hungarian assignment / log-stabilised Sinkhorn / Sinkhorn-divergence / sliced Wasserstein / closed-form 1-D EMD / unbalanced Sinkhorn / entropic Gromov-Wasserstein / 1-D Kantorovich-Rubinstein dual / 1-D W_2 barycenter); cyclic-monotonicity optimality witnesses, Weed-Bach finite-sample bias bound, marginal-violation feasibility certificate; the *how-far-apart-are-these-two-distributions-and-which-plan-realises-it* primitive — composes with Robustifier (W_1/W_2 DRO balls materialised with explicit plan + dual potential), DriftSentinel (W_1 drift score with distribution-free finite-sample bound), CausalDiscoverer (Hungarian or Sinkhorn counterfactual matching of treated/control), Conformal (CDF-distance goodness-of-fit), Coalition (Wasserstein-Shapley), PolicyImprover/PolicyLab (state-visitation W_1 between policies), Strategist (risk-adjusted decisions on the (EV, W_1-shift) plane)
+  forecaster.py     # Forecaster — anytime-valid probabilistic forecasting as a runtime primitive (Bernoulli / Categorical / Gaussian / Empirical / Interval forecasts); strictly proper scoring rules (Brier / log / spherical / quadratic / CRPS / pinball / linex); anytime-valid calibration test via an aGRAPA-betting e-process on the PIT (Ville's inequality — rejects calibration breach under *any* stopping rule); Massart-DKW finite-sample KS thresholds, Anderson-Darling A² with Stephens (1986) p-value; isotonic / histogram / PIT / Platt recalibration; Hedge (Cesa-Bianchi & Lugosi) and polynomial-weights aggregators with provable O(√(T log K)) cumulative regret; online conformal prediction intervals; the *give-me-a-calibrated-probability-and-prove-it* primitive — composes with Arbiter (anytime-valid stopping on forecast scores), Auditor (FDR-controlled batched calibration tests across streams), Equilibrator (game-theoretic interpretation of forecasts as bets), Strategist (decision-theoretic loss minimisation under proper scoring), DriftSentinel (e-process detects forecast-calibration drift)
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -75,7 +76,7 @@ learner/            # learning track — small open base + LoRA loop
 evals/
   tasks.jsonl       # eval tasks (math, file ops, recall, search)
   run.py            # eval runner
-tests/              # 290+ unit tests, all run without an API key
+tests/              # 1700+ unit tests, all run without an API key
 ARCHITECTURE.md     # full design — read this for direction
 PLAN.md             # stage roadmap
 ```
@@ -1944,6 +1945,123 @@ See `tests/test_cartographer.py` for the verified contracts (Wilson /
 Clopper-Pearson CIs, learning-progress monotonicity, prereq-DAG cycle
 rejection, fragile-status on regression, snapshot/restore round-trip,
 end-to-end mastery propagation).
+
+## Forecaster — anytime-valid probabilistic forecasting
+
+Every other primitive in the stack ultimately *consumes* or *produces*
+a probability — Arbiter compares arm means, Auditor batches p-values,
+Robustifier worst-cases over ambiguity sets, Cartographer tracks
+competence, CausalDiscoverer estimates ATEs.  None of them *commit
+to a calibrated, score-valid probability distribution* and then prove
+that commitment under arbitrary stopping. The `Forecaster` does.
+
+It is the primitive that gives the rest of the stack a single rigorous
+answer to **"what is your forecast, what's your score, and is it
+calibrated?"** — with finite-sample, anytime-valid guarantees that hold
+under *any* data-dependent stopping rule a coordination engine could
+construct.
+
+Three things make it different from the usual calibration toolchain:
+
+1. **An anytime-valid e-process** for the PIT, derived from the
+   Vovk-Wang test-supermartingale construction with predictable
+   aGRAPA betting (Waudby-Smith & Ramdas, 2024). The wealth process
+   ``W_t = ∏ (1 + θ_s (2 u_s − 1))`` is a non-negative martingale
+   under H₀; by Ville's inequality
+        P_{H₀}(∃t : W_t ≥ 1/α) ≤ α
+   for *every* stopping rule. The runtime can therefore monitor live
+   forecasts, stop the moment it sees enough evidence, and still
+   report a valid α-level rejection — no sample-size pre-registration,
+   no asymptotics.
+2. **Strictly proper scoring rules** with the closed forms expected
+   from production: Brier / log / spherical / quadratic for discrete,
+   CRPS for continuous (closed-form Gaussian via Gneiting-Raftery,
+   O(n) rank-sum form for empirical distributions), pinball and linex
+   for asymmetric decision-loss.
+3. **Hedge ensembling with a regret bound**. Multiple forecast
+   streams can be combined into one with an exponentially-weighted
+   average aggregator whose cumulative regret against the best
+   stream is bounded by ``√((T/2) log K)`` (Cesa-Bianchi & Lugosi,
+   2006, Thm 2.2). Polynomial-weights is the parameter-free variant.
+
+```python
+from agi.forecaster import (
+    Forecaster, GaussianForecast, BernoulliForecast,
+    CALIB_E_PROCESS, SCORE_CRPS, POOL_HEDGE, RECAL_PIT,
+)
+
+fcst = Forecaster(bus=bus, attestor=attestor)
+fcst.register_stream("model-a")
+fcst.register_stream("model-b")
+
+# Stream observations as forecast/outcome pairs.
+for t, y in zip(forecasts_a, observed_latencies):
+    fcst.record("model-a", t, y)
+
+# Strict propriety enforced — Brier / log / spherical / CRPS / pinball / linex.
+crps_a = fcst.score("model-a", SCORE_CRPS).mean
+
+# Anytime-valid: stop reading the moment Ville rejects.
+report = fcst.calibration_test("model-a", method=CALIB_E_PROCESS, alpha=0.05)
+if report.rejected:
+    fcst.recalibrate("model-a", method=RECAL_PIT)
+
+# Online conformal interval at the requested miscoverage.
+iv = fcst.interval("model-a", alpha=0.1)
+# iv.lower, iv.upper bracket the next y with marginal probability 1-α.
+
+# Hedge ensemble — cumulative regret bound is part of the report.
+ens = fcst.ensemble("router", ["model-a", "model-b"],
+                     method=POOL_HEDGE, rule=SCORE_CRPS)
+print(ens.weights, ens.cumulative_regret_bound)
+
+# Live forecast for the next outcome.
+next_forecast = fcst.forecast(ensemble_id="router")
+```
+
+Composition with the rest of the stack:
+
+* `Arbiter`: a Forecaster stream's score history is exactly the
+  reward stream Arbiter wants. Plug the per-step CRPS or log-score
+  into Arbiter's KL-LUCB and get an anytime-valid best-model
+  decision.
+* `Auditor`: when N streams are scored simultaneously, the per-stream
+  e-values feed straight into the e-BH (e-value Benjamini-Hochberg)
+  procedure and the runtime gets FDR-controlled calibration-breach
+  decisions across the whole fleet.
+* `Equilibrator`: log-scoring is mathematically a Kelly bet on the
+  outcome's identity; a calibrated forecaster is exactly the
+  Bayes-optimal play of the prediction game. Equilibrator lets us
+  reason about *adversarial* forecast markets the same way.
+* `Strategist`: every decision a coordinator makes is implicitly a
+  cost-weighted expected loss under some forecast. Forecaster gives
+  the proper score; Strategist gives the budget-aware route. The
+  paired call is "score this candidate, pick that one".
+* `DriftSentinel`: a Forecaster's e-process rising past the rejection
+  boundary is itself a drift signal. The two primitives meet on the
+  PIT — DriftSentinel watches the marginal data, Forecaster watches
+  the *predictive accuracy*.
+* `Conformal`: the in-stream conformal interval delegates to
+  `agi.conformal` for the heavier nonparametric machinery (CQR,
+  RAPS, ACI).
+* `AttestationLedger`: every observation, score, calibration test,
+  recalibration, ensemble update, and interval emission writes a
+  content-hashed receipt. A third party can replay the JSONL stream
+  and recompute the e-process, score totals, and Hedge weights bit
+  for bit.
+
+Investor framing: a coordination engine that doesn't know the
+*calibrated probability* it's acting on can only justify decisions
+retrospectively. `Forecaster` gives it forward-looking, anytime-valid
+probabilistic ground truth — and a receipt for every test it ran along
+the way.
+
+See `examples/forecaster_demo.py` for the end-to-end three-stream
+flow with biased detection, recalibration, and Hedge mixing.
+`tests/test_forecaster.py` verifies the contracts (strict propriety,
+closed-form CRPS, Ville's inequality under H₀, e-process rejection
+under controlled bias, Hedge regret-bound, conformal coverage,
+threadsafety, attestation receipts) — 93 tests, all passing.
 
 ## HTTP / SSE surface
 
