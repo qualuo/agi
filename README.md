@@ -47,6 +47,8 @@ agi/                # runtime + agent + reference coordinator
   drift.py          # DriftSentinel — anytime-valid sequential drift detection (Page-Hinkley CUSUM + BOCPD changepoint posterior + Shin-Ramdas-Rinaldo e-process); the trust-gate that tells the coordinator when calibration/conformal/policy estimates have gone stale
   arbiter.py        # Arbiter — fixed-confidence Best-Arm Identification (Track-and-Stop / KL-LUCB / Sequential Halving); identifies the winning model/prompt/policy at (ε, δ)-PAC with asymptotically optimal sample complexity, the cross-strategy dual of Deliberator
   cartographer.py   # Cartographer — zone-of-proximal-development curriculum kernel; Beta-Binomial competence with Wilson CIs + Oudeyer learning-progress + prereq-DAG + Sviridenko submodular knapsack; the *what-should-I-learn-next* primitive — upstream of Arbiter
+  coalition.py      # Coalition — Shapley credit-assignment as a runtime primitive (exact + Monte-Carlo + stratified + Owen group + Banzhaf); anytime PAC bounds via Hoeffding/Bernstein; the *who-deserves-the-credit* primitive for retraining-budget allocation, multi-tenant cost split, and skill deprecation
+  robustifier.py    # Robustifier — Distributionally Robust Optimization (Wasserstein-1 / KL / χ² / CVaR / Empirical Likelihood); worst-case-mean evaluation over a finite-sample-valid uncertainty ball; the *how-to-plan-against-the-drift-you-haven't-yet-seen* primitive — downstream of DriftSentinel, upstream of Strategist
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
