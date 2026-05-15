@@ -61,6 +61,7 @@ agi/                # runtime + agent + reference coordinator
   synthesizer.py    # Synthesizer — program synthesis as a runtime primitive (typed AST + DSL declaration / version-space enumeration by depth (Mitchell 1982) and by MDL-cost-priority-queue Dijkstra over the program graph / counterexample-guided inductive synthesis (Solar-Lezama 2008) with arbitrary executable verifier / programming-by-example over built-in string (Gulwani 2011 FlashFill primitives — concat, substring, split, replace, case-fold, strip, index-of, length), integer (+, -, *, //, %, min, max, abs, ifzero), and list (head, last, length, sum, max, min) DSLs / anti-unification / least general generalisation (Plotkin 1970) / L\\* DFA learning from membership + equivalence oracles (Angluin 1987)); Blumer-Ehrenfeucht-Haussler-Warmuth (1987) Occam's-razor PAC bound on generalisation error from AST complexity, sample-complexity inversion ``m ≥ (|h| ln 2 + ln(1/δ)) / ε``; tamper-evident SHA-256 fingerprint over (DSL, examples, AST); top-K alternative-program enumeration; ``max_visited`` search cap; pure stdlib — no Z3, no SMT-LIB, no PEG parser; the *write-me-a-verifiable-program-from-examples-and-give-me-a-PAC-bound-on-its-generalisation* primitive — the **self-extension** mechanism the runtime needs to author its own tools — composes with Toolsynth (sandboxed execution of synthesised programs), SkillMine (promote programs to Skill library when Occam bound clears threshold), AttestationLedger (tamper-evident receipt-replayable synthesis), Auditor (BH on held-out e-values across top-K candidates), Sampler (ADVI fit of continuous constants in a symbolic skeleton), AutonomousLoop (synthesise missing skills from successful traces), EvolutionEngine (AST-level mutation / crossover over strategies)
   sampler.py        # Sampler — Bayesian probabilistic inference as a runtime primitive (Random-walk Metropolis with Haario-Saksman-Tamminen 2001 adaptive proposal / Metropolis-adjusted Langevin (Roberts-Tweedie 1996, optimal acceptance 0.574) / Unadjusted Langevin (Durmus-Moulines 2017) / Hamiltonian Monte Carlo (Neal 2011) with diagonal mass and dual-averaging step-size adaptation / No-U-Turn Sampler (Hoffman-Gelman 2014, recursive doubling + slice variable + U-turn termination + Nesterov 2009 primal-dual log-step averaging — the algorithm behind Stan) / Slice sampling (Neal 2003, zero-tuning stepping-out + shrinkage) / Parallel tempering with geometric ladder and replica exchange (Earl-Deem 2005) / Sequential Monte Carlo with adaptive geometric tempering and unbiased log-evidence estimator (Del Moral-Doucet-Jasra 2006) / self-normalised importance sampling with PWM-fitted Pareto-k tail diagnostic (Vehtari-Simpson-Gelman-Yao-Gabry 2024) / mean-field and full-rank ADVI on the reparameterised ELBO (Kucukelbir-Tran-Ranganath-Gelman-Blei 2017) with AdaGrad); rank-normalised split-R̂ (Vehtari et al. 2021), bulk-ESS, tail-ESS, Geyer 1992 initial-monotone-sequence integrated autocorrelation time, Geweke 1992 stationarity z-score, divergence and max-tree-depth counters; anytime-valid credible sets via Massart-DKW finite-sample CDF band and Howard-Ramdas-McAuliffe-Sekhon (2021) bounded-mean confidence sequence; tamper-evident reproducibility fingerprint on every SampleReport; the *give-me-the-posterior-and-prove-it* primitive — the foundational Bayesian-inference engine for Forecaster (posterior predictive), Causal (non-conjugate ATE posteriors), ActiveInferencer (particle belief), PolicyImprover (amortised safe-policy posterior via ADVI), Strategist (Thompson sampling on diagnosed-converged posterior), Persuader (uncertain-prior robust persuasion), CausalDiscoverer (parallel-tempered DAG posterior), AttestationLedger (replayable sample-receipt)
   refuter.py        # Refuter — automated falsification as a runtime primitive (Popperian conjecture-and-refutation in code; portfolio search over typed search spaces — boundary corner enumeration (Goldberg 1991 IEEE-754 corners), Halton 1960 low-discrepancy quasi-random, uniform random, (1+λ) evolution strategies (Rechenberg 1973) with 1/5-success-rule step adaptation, optional Nelder-Mead 1965 simplex; metamorphic relations (Chen-Cheung-Yiu 1998) for oracle-free testing; bound mode for tightness audits; sequential anytime-valid e-process (Vovk-Wang 2021) accumulating Bernoulli evidence under Ville's inequality — reject at any stopping time; QuickCheck-style structural shrinking (Hughes-Claessen 2000) reduces witnesses to minimal form; exact Clopper-Pearson 1934 finite-sample UCB on failure rate (1 − α^{1/n} at k=0; closed-form via beta inversion otherwise); CEGIS scaffold (Solar-Lezama 2008) for refute-then-resynthesise loops with Synthesizer; tamper-evident SHA-256 fingerprint over (predicate signature, space, seed, witnesses, strategy counts) on every RefutationReport; pure stdlib — no SMT solver, no autograd); the *try-to-break-every-claim-this-runtime-makes* primitive — the **epistemic** mechanism that turns any other primitive's output into a falsifiable, statistically-bounded claim — composes with Synthesizer (CEGIS over any DSL), Forecaster (metamorphic PIT-uniformity refutation), Sampler (posterior-predictive stress test), ConformalPredictor (coverage refutation on adversarial points), CausalDiscoverer (refute CI claims that justified an edge orientation), Submodular (refute diminishing-returns / submodularity), Skills (refute pre/post-conditions before action), AttestationLedger (replay-verifiable refutation receipts), Auditor (BH on per-claim e-values for multiple-refutation control), AutonomousLoop (refute every plan's preconditions before commit)
+  privacy.py        # PrivacyAccountant — differential privacy as a runtime primitive (Laplace (Dwork-McSherry-Nissim-Smith 2006) / Gaussian with Balle-Wang 2018 analytic σ-calibration (tight (ε,δ) for any ε; 20-30% noise savings vs. classical √(2 ln(1.25/δ))Δ/ε at ε≤1) / classical Dwork-Roth Gaussian / Mironov 2012 snapping mechanism with floating-point side-channel resistance and 2λ/b ε overhead / McSherry-Talwar 2007 exponential mechanism for private 'best of N' selection / Lyu-Su-Li 2017 corrected Sparse Vector Technique (ε₁ on threshold, ε₂·c on c positive answers) / Chan-Shi-Song 2010 binary-tree mechanism for continual release with O(log T) privacy loss per prefix sum); RenyiAccountant (Mironov 2017) tracks α-Rényi divergence over a configurable α-grid with additive composition and tight α-optimal conversion ε_{ε,δ} = inf_α ε(α) + log(1/δ)/(α−1); tight subsampled-Gaussian RDP (Mironov-Talwar-Zhang 2019; Wang-Balle-Kasiviswanathan 2019) for DP-SGD-style minibatch updates; basic / advanced (Dwork-Rothblum-Vadhan 2010 ε √(2k ln(1/δ')) + kε(e^ε−1)) / zCDP (Bun-Steinke 2016) composition theorems; per-release immutable Release receipts with SHA-256 fingerprint over (mechanism, sensitivity, ε, δ, seed, value_in, value_out); a per-session ledger_hash chaining all release fingerprints; hard-fail privacy odometer that raises BudgetExhausted when a request would exceed the target (ε,δ); pure stdlib — Beasley-Springer 1977 / Moro 1995 standard-normal inverse CDF, math.erf for Φ); the *prove-the-(ε,δ)-DP-bound-on-everything-this-runtime-touches* primitive — the **regulatory** mechanism every enterprise / regulated-industry deployment needs — composes with AttestationLedger (each Release is replay-verifiable), Auditor (refuses ingestion when odometer trips), Sampler (DP-SGD via the moments accountant), Forecaster (DP score release on held-out labels), Cartographer (per-task counters), Coordinator (per-user budget on Session boundaries), Refuter (refute the (ε,δ) claim itself via metamorphic invariance on neighbouring datasets)
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -2280,6 +2281,108 @@ corners, Halton determinism, list-shrinking minimisation, exact
 Clopper-Pearson at `k=0`, e-value monotonicity, fingerprint stability,
 CEGIS convergence, NaN-corner refutation, walltime budget, replay) —
 44 tests, all passing.
+
+## PrivacyAccountant — differential privacy as a runtime primitive
+
+Every other primitive in this runtime can consume sensitive data:
+the trace logger writes user prompts; Cartographer records task
+identifiers; Forecaster ingests held-out labels; PolicyLab logs
+reward signals.  A production deployment that touches *any* user
+data inherits a regulatory obligation — GDPR, HIPAA, CCPA, the EU
+AI Act — to bound information leakage about individual records.
+The `PrivacyAccountant` is the primitive that supplies the **proof**:
+a tamper-evident ledger of every noisy release the runtime has
+emitted, with a finite-sample (ε, δ)-DP bound on the *joint* privacy
+loss across all of them.
+
+```python
+from agi.privacy import PrivacyAccountant
+
+# Allocate a (1.0, 1e-6)-DP budget for this session
+A = PrivacyAccountant(epsilon=1.0, delta=1e-6, composition="basic", seed=42)
+
+# ε-DP release of a count with sensitivity 1
+noisy = A.laplace(value=true_count, sensitivity=1.0, epsilon=0.1)
+
+# (ε, δ)-DP release with Balle-Wang 2018 analytic Gaussian σ
+noisy = A.gaussian(value=mean, sensitivity=1.0, epsilon=0.1, delta=1e-7)
+
+# McSherry-Talwar 2007 exponential mechanism for private "best of N"
+chosen = A.exponential(items, utility=score_fn, sensitivity=1.0, epsilon=0.2)
+
+# Sparse Vector Technique (Lyu-Su-Li 2017): answer many threshold
+# queries but pay only on positives
+svt = A.sparse_vector(threshold=10.0, sensitivity=1.0,
+                       epsilon_threshold=0.1, epsilon_answer=0.1,
+                       max_positive=5)
+for q in stream:
+    if svt.query(q):
+        record(q)
+
+# When the budget is exhausted, the next release raises BudgetExhausted
+A.spent_epsilon, A.remaining_epsilon
+
+# Audit trail
+A.releases          # tuple of immutable Release records, each with a SHA-256 fingerprint
+A.ledger_hash()     # one tamper-evident hash over the whole session
+A.summary()         # JSON-able for compliance dashboards
+```
+
+### Composition theorems
+
+| Theorem            | Use when                                           | Joint cost                                                  |
+|--------------------|----------------------------------------------------|-------------------------------------------------------------|
+| Basic (Dwork+ 2006)| ≤ tens of releases or rough auditing               | Σ ε_i, Σ δ_i                                                 |
+| Advanced (DRV 2010)| many small ε releases                              | ε √(2k ln(1/δ')) + k ε (e^ε − 1), kδ + δ'                  |
+| RDP (Mironov 2017) | many releases at low ε; Gaussian-heavy             | additive in ε(α) for each α; convert at the end             |
+| zCDP (Bun-Steinke 2016) | Gaussian-only sessions                       | ρ-zCDP ⇒ (ρ + 2√(ρ ln(1/δ)), δ)-DP                          |
+| Subsampled-RDP (Mironov-Talwar-Zhang 2019; Wang-Balle-Kasiviswanathan 2019) | DP-SGD-style minibatch updates | tight bound for Poisson sampling + Gaussian noise           |
+
+`PrivacyAccountant` ships all four; pick via the `composition` argument
+or compute manually with `basic_composition`, `advanced_composition`,
+`zcdp_to_epsilon_delta`, and the `RenyiAccountant` helper.
+
+### Mechanisms shipped
+
+| Mechanism               | Reference                          | Guarantee                       |
+|-------------------------|------------------------------------|---------------------------------|
+| Laplace                 | Dwork-McSherry-Nissim-Smith 2006  | ε-DP                            |
+| Gaussian (analytic σ)   | Balle-Wang 2018                    | tight (ε, δ)-DP                 |
+| Gaussian (classical σ)  | Dwork-Roth 2014                    | (ε, δ)-DP for ε ≤ 1             |
+| Snapping (anti-side-channel) | Mironov 2012                  | ε'-DP with side-channel safety  |
+| Exponential             | McSherry-Talwar 2007               | ε-DP private selection          |
+| Sparse Vector Technique | Lyu-Su-Li 2017 (corrected)         | ε-DP threshold-query streaming  |
+| Binary-tree counter     | Chan-Shi-Song 2010                 | ε-DP continual release          |
+
+### What it composes with
+
+| Primitive            | Role                                                                   |
+|----------------------|------------------------------------------------------------------------|
+| `AttestationLedger`  | Every Release ships a SHA-256 fingerprint; ledger hash is replay-verifiable |
+| `Auditor`            | Refuses further ingestion once the privacy odometer trips              |
+| `Sampler`            | DP-SGD style training: the moments accountant gates each gradient step |
+| `Forecaster`         | DP score release on held-out labels                                    |
+| `Cartographer`       | Per-task counters released through Laplace / Gaussian                  |
+| `Coordinator`        | Per-user accountant on Session boundaries                              |
+| `Refuter`            | Refute the claim "this release is (ε, δ)-DP" via metamorphic invariance |
+
+### Investor framing
+
+> *"Every byte the agent writes about a user passes through a
+> calibrated noise mechanism and gets debited from a regulatory-grade
+> privacy budget.  At any moment the runtime can produce a tamper-
+> evident hash that proves the joint (ε, δ) leakage across the entire
+> session — the compliance receipt enterprise procurement asks for
+> first and accepts last."*
+
+See `examples/privacy_demo.py` for the seven end-to-end scenarios
+(Laplace / analytic Gaussian / budget exhaustion / exponential / SVT /
+Rényi accountant / audit trail).  `tests/test_privacy.py` verifies
+the mathematical contract (standard-normal CDF round-trip, analytic
+σ tighter than classical, Gaussian RDP closed form, Laplace empirical
+mean/variance, exponential mechanism bias, ledger-hash determinism,
+SVT positive cap, RDP accountant additivity, advanced composition
+tightness) — 38 tests, all passing.
 
 ## HTTP / SSE surface
 
