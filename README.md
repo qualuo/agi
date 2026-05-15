@@ -60,6 +60,7 @@ agi/                # runtime + agent + reference coordinator
   diplomat.py       # Diplomat — counterfactual regret minimization for extensive-form games with imperfect information (vanilla CFR / CFR+ (Tammelin 2014, the *Science*-paper algorithm for heads-up limit Texas hold'em) / Linear CFR / Discounted CFR (Brown-Sandholm 2019, the algorithm behind Libratus) / Predictive CFR+ (Farina-Kroer-Sandholm 2021, O(1/T) last-iterate) / external-sampling MCCFR / chance-sampling CFR / outcome-sampling MCCFR / exact sequence-form LP (von Stengel 1996, solved with a stdlib mixed-constraint Big-M revised-simplex); exact O(|tree|) best-response and NashConv exploitability; Kuhn 1953 poker + matching pennies + RPS + multi-round bargaining + private-signal coin-match builders; perfect-recall verification at build time; tamper-evident certificate fingerprint on every SolveReport); the *sequentially-stable-when-N-agents-play-an-imperfect-information-protocol* primitive — the extensive-form / sequential dual of Equilibrator; composes with Equilibrator (one-shot specialisation), Negotiator (multi-round bargaining protocols), Persuader (multi-stage information design), TruthSerum (truthful Nash on the entire EFG, not just per round), MechanismDesigner (dominant-strategy IC verified on the full game tree), Strategist (exploitability-adjusted policy shipping), AttestationLedger (commitment to the equilibrium before any agent acts)
   synthesizer.py    # Synthesizer — program synthesis as a runtime primitive (typed AST + DSL declaration / version-space enumeration by depth (Mitchell 1982) and by MDL-cost-priority-queue Dijkstra over the program graph / counterexample-guided inductive synthesis (Solar-Lezama 2008) with arbitrary executable verifier / programming-by-example over built-in string (Gulwani 2011 FlashFill primitives — concat, substring, split, replace, case-fold, strip, index-of, length), integer (+, -, *, //, %, min, max, abs, ifzero), and list (head, last, length, sum, max, min) DSLs / anti-unification / least general generalisation (Plotkin 1970) / L\\* DFA learning from membership + equivalence oracles (Angluin 1987)); Blumer-Ehrenfeucht-Haussler-Warmuth (1987) Occam's-razor PAC bound on generalisation error from AST complexity, sample-complexity inversion ``m ≥ (|h| ln 2 + ln(1/δ)) / ε``; tamper-evident SHA-256 fingerprint over (DSL, examples, AST); top-K alternative-program enumeration; ``max_visited`` search cap; pure stdlib — no Z3, no SMT-LIB, no PEG parser; the *write-me-a-verifiable-program-from-examples-and-give-me-a-PAC-bound-on-its-generalisation* primitive — the **self-extension** mechanism the runtime needs to author its own tools — composes with Toolsynth (sandboxed execution of synthesised programs), SkillMine (promote programs to Skill library when Occam bound clears threshold), AttestationLedger (tamper-evident receipt-replayable synthesis), Auditor (BH on held-out e-values across top-K candidates), Sampler (ADVI fit of continuous constants in a symbolic skeleton), AutonomousLoop (synthesise missing skills from successful traces), EvolutionEngine (AST-level mutation / crossover over strategies)
   sampler.py        # Sampler — Bayesian probabilistic inference as a runtime primitive (Random-walk Metropolis with Haario-Saksman-Tamminen 2001 adaptive proposal / Metropolis-adjusted Langevin (Roberts-Tweedie 1996, optimal acceptance 0.574) / Unadjusted Langevin (Durmus-Moulines 2017) / Hamiltonian Monte Carlo (Neal 2011) with diagonal mass and dual-averaging step-size adaptation / No-U-Turn Sampler (Hoffman-Gelman 2014, recursive doubling + slice variable + U-turn termination + Nesterov 2009 primal-dual log-step averaging — the algorithm behind Stan) / Slice sampling (Neal 2003, zero-tuning stepping-out + shrinkage) / Parallel tempering with geometric ladder and replica exchange (Earl-Deem 2005) / Sequential Monte Carlo with adaptive geometric tempering and unbiased log-evidence estimator (Del Moral-Doucet-Jasra 2006) / self-normalised importance sampling with PWM-fitted Pareto-k tail diagnostic (Vehtari-Simpson-Gelman-Yao-Gabry 2024) / mean-field and full-rank ADVI on the reparameterised ELBO (Kucukelbir-Tran-Ranganath-Gelman-Blei 2017) with AdaGrad); rank-normalised split-R̂ (Vehtari et al. 2021), bulk-ESS, tail-ESS, Geyer 1992 initial-monotone-sequence integrated autocorrelation time, Geweke 1992 stationarity z-score, divergence and max-tree-depth counters; anytime-valid credible sets via Massart-DKW finite-sample CDF band and Howard-Ramdas-McAuliffe-Sekhon (2021) bounded-mean confidence sequence; tamper-evident reproducibility fingerprint on every SampleReport; the *give-me-the-posterior-and-prove-it* primitive — the foundational Bayesian-inference engine for Forecaster (posterior predictive), Causal (non-conjugate ATE posteriors), ActiveInferencer (particle belief), PolicyImprover (amortised safe-policy posterior via ADVI), Strategist (Thompson sampling on diagnosed-converged posterior), Persuader (uncertain-prior robust persuasion), CausalDiscoverer (parallel-tempered DAG posterior), AttestationLedger (replayable sample-receipt)
+  refuter.py        # Refuter — automated falsification as a runtime primitive (Popperian conjecture-and-refutation in code; portfolio search over typed search spaces — boundary corner enumeration (Goldberg 1991 IEEE-754 corners), Halton 1960 low-discrepancy quasi-random, uniform random, (1+λ) evolution strategies (Rechenberg 1973) with 1/5-success-rule step adaptation, optional Nelder-Mead 1965 simplex; metamorphic relations (Chen-Cheung-Yiu 1998) for oracle-free testing; bound mode for tightness audits; sequential anytime-valid e-process (Vovk-Wang 2021) accumulating Bernoulli evidence under Ville's inequality — reject at any stopping time; QuickCheck-style structural shrinking (Hughes-Claessen 2000) reduces witnesses to minimal form; exact Clopper-Pearson 1934 finite-sample UCB on failure rate (1 − α^{1/n} at k=0; closed-form via beta inversion otherwise); CEGIS scaffold (Solar-Lezama 2008) for refute-then-resynthesise loops with Synthesizer; tamper-evident SHA-256 fingerprint over (predicate signature, space, seed, witnesses, strategy counts) on every RefutationReport; pure stdlib — no SMT solver, no autograd); the *try-to-break-every-claim-this-runtime-makes* primitive — the **epistemic** mechanism that turns any other primitive's output into a falsifiable, statistically-bounded claim — composes with Synthesizer (CEGIS over any DSL), Forecaster (metamorphic PIT-uniformity refutation), Sampler (posterior-predictive stress test), ConformalPredictor (coverage refutation on adversarial points), CausalDiscoverer (refute CI claims that justified an edge orientation), Submodular (refute diminishing-returns / submodularity), Skills (refute pre/post-conditions before action), AttestationLedger (replay-verifiable refutation receipts), Auditor (BH on per-claim e-values for multiple-refutation control), AutonomousLoop (refute every plan's preconditions before commit)
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -2156,6 +2157,129 @@ flow with biased detection, recalibration, and Hedge mixing.
 closed-form CRPS, Ville's inequality under H₀, e-process rejection
 under controlled bias, Hedge regret-bound, conformal coverage,
 threadsafety, attestation receipts) — 93 tests, all passing.
+
+## Refuter — automated falsification as a runtime primitive
+
+Every other primitive in this runtime *makes claims*: `Synthesizer`
+says "this program is correct on the spec", `Forecaster` says "this
+distribution is calibrated", `Sampler` says "this is the posterior",
+`Cartographer` says "this task is in the learner's frontier",
+`ConformalPredictor` says "this interval covers", `Submodular` says
+"this is a (1 − 1/e)-approximation".  **The `Refuter` is the primitive
+that tries to break them** — Popperian conjecture-and-refutation as a
+runtime mechanism.
+
+The pitch is Popper, automated.  A hypothesis ``H: X → bool`` is
+*refuted* by a single ``x ∈ X`` with ``H(x) = False``.  Refutation is
+asymmetric: one witness destroys the hypothesis; no number of
+confirmations proves it — confirmations only constrain the *rate* of
+failure.
+
+```python
+from agi.refuter import (
+    Refuter, ContinuousSpace, ListSpace, IntegerSpace, Product, cegis_loop,
+)
+
+R = Refuter(seed=0)
+
+# 1. Refute a known-false hypothesis: x² ≥ x is false on (0, 1)
+def H(x): return x["v"] ** 2 >= x["v"]
+rep = R.try_refute(H, Product(v=ContinuousSpace(-3.0, 3.0)), n_trials=1000)
+# rep.refuted == True; rep.counterexample.x  ⇒ {"v": 0.4…}
+
+# 2. Metamorphic refutation — no oracle, but a relation must hold:
+#    sorted(reversed(L)) must equal sorted(L)
+rep = R.try_refute_relation(
+    f=sorted,
+    relation=lambda x, fx, x2, fx2: fx == fx2,
+    space=ListSpace(IntegerSpace(0, 50), max_len=8),
+    x_to_x2=lambda L: list(reversed(L)),
+    n_trials=300,
+)
+# rep.refuted == False; rep.support_claim() prints the CP-UCB on failure rate
+
+# 3. Bound refutation — drive a scalar toward a tight upper bound
+rep = R.try_refute_bound(
+    scalar=lambda x: x["v"]**2 - 4*x["v"] + 5,
+    threshold=2.5, direction="<=",
+    space=Product(v=ContinuousSpace(0.0, 5.0)),
+    n_trials=400,
+)
+# rep.refuted == True at x=0 (f(0) = 5 > 2.5)
+
+# 4. CEGIS — refute-then-resynthesise loop (Solar-Lezama 2008)
+space = ListSpace(IntegerSpace(0, 15), min_len=1, max_len=3)
+final_c, witnesses = cegis_loop(
+    candidate0=0,
+    refute=lambda c: R.try_refute(lambda L: max(L) <= c if L else True,
+                                  space, n_trials=200),
+    resynthesise=lambda c, cex: max(c, max(cex.x)),
+    max_rounds=20,
+)
+# final_c = 15, the smallest constant validating ∀L: max(L) ≤ c
+
+# 5. Sequential / anytime-valid rate refutation
+rep = R.refute_until(predicate=H, space=..., p0=0.01, alpha=0.05, n_max=5000)
+# rep.e_value ≥ 1/α  ⇒  reject under any stopping rule (Ville 1939)
+```
+
+### Strategies (portfolio search, deterministic under a fixed seed)
+
+| Strategy        | What it does                                                                  |
+|-----------------|-------------------------------------------------------------------------------|
+| `boundary`      | IEEE-754 / interval corners (lo, hi, mid, zero-cross, ±∞, NaN)                |
+| `halton`        | Halton (1960) low-discrepancy quasi-random over continuous coordinates        |
+| `random`        | Uniform i.i.d. samples — coverage baseline                                    |
+| `evolutionary`  | (1+λ) ES on the satisfaction margin with Rechenberg 1/5 step-size adaptation  |
+| `nelder_mead`   | Optional: derivative-free simplex search for low-dimensional continuous boxes |
+| `shrink`        | QuickCheck-style structural minimisation of any found witness (Hughes-Claessen 2000) |
+
+### Statistical witness strength
+
+When the search ends without a counterexample, the report carries a
+*finite-sample* upper bound on the failure rate:
+
+  * **Clopper-Pearson 1934** — exact (1-α) one-sided UCB on the
+    Bernoulli rate.  For `k = 0` failures in `n` trials it collapses
+    to the closed form ``1 - α^{1/n}`` and to the famous rule-of-three
+    ``≈ 3/n`` at α = 0.05 (Hanley-Lippman-Hand 1983).
+  * **Hoeffding 1963** — sub-Gaussian UCB on bounded means; useful
+    when the predicate emits a satisfaction-margin score instead of a
+    bit.
+  * **Vovk-Wang 2021 e-value** — anytime-valid evidence ``e_n``
+    against the null ``Pr[fail] ≤ p₀``.  Ville's inequality gives
+    ``Pr_{H₀}(∃ t: e_t ≥ 1/α) ≤ α`` for every stopping rule, so
+    `refute_until` can be polled arbitrarily often and the rejection
+    decision is still valid.
+
+### What it composes with
+
+| Primitive            | Refuter's role                                                       |
+|----------------------|----------------------------------------------------------------------|
+| `Synthesizer`        | CEGIS: refute a candidate program before commit; resynthesise on cex |
+| `Forecaster`         | Refute calibration claims via metamorphic PIT-uniformity checks      |
+| `Sampler`            | Posterior-predictive stress test: refute that observed moments fall in PP-quantiles |
+| `ConformalPredictor` | Coverage stress-test on adversarial points found by ES               |
+| `CausalDiscoverer`   | Refute conditional-independence claims that the score relied on      |
+| `Submodular`         | Refute marginal-gain decrease (≡ submodularity certificate)          |
+| `Skills`             | A skill's pre/post-conditions become refutable claims before action  |
+| `AttestationLedger`  | Every `RefutationReport` carries a SHA-256 fingerprint over its inputs and witnesses |
+| `Auditor`            | Multiple Refuter calls feed e-values for FDR-controlled multiple-refutation control |
+
+### Investor framing
+
+> *"Every claim our agent makes is automatically stress-tested.  Each
+> output ships with a finite-sample bound on its failure rate and a
+> tamper-evident receipt — Popperian falsification reduced to a
+> runtime call."*
+
+See `examples/refuter_demo.py` for the six end-to-end scenarios
+(point-refutation / support / metamorphic / bound / CEGIS / sequential).
+`tests/test_refuter.py` verifies the mathematical contract (boundary
+corners, Halton determinism, list-shrinking minimisation, exact
+Clopper-Pearson at `k=0`, e-value monotonicity, fingerprint stability,
+CEGIS convergence, NaN-corner refutation, walltime budget, replay) —
+44 tests, all passing.
 
 ## HTTP / SSE surface
 
