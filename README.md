@@ -71,6 +71,7 @@ agi/                # runtime + agent + reference coordinator
   quantilizer.py    # Quantilizer — safety-bounded optimisation as a runtime primitive (hard exact discrete q-quantilizer (Taylor 2016 *Quantilizers: A Safer Alternative to Maximizers for Limited Optimization*), top-K quantilizer with deterministic SHA-256 tie-break, soft Boltzmann / Gibbs quantilizer with KL budget solved by bisection so KL(π_β ‖ b) = B exactly, sample-based empirical quantilizer with Massart-DKW 1990 finite-sample band on the (1-q)-quantile, Hoeffding 1963 / Maurer-Pontil 2009 empirical-Bernstein / Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid LCB / UCB on the expected utility under the quantilizer, Taylor 2016 hidden-cost amplification UCB (E_q[c] ≤ E_b[c] / q), exact KL bound log(1/q), TV bound 1 − q, Pinsker / Bretagnolle-Huber 1979 / Le Cam derived divergence bounds, deterministic JSON-canonical SHA-256 fingerprint chain (genesis ``quantilizer.v1.genesis``) so every selection / quantilization / observation hashes into a replay-verifiable receipt for AttestationLedger, thread-safe re-entrant lock, pure stdlib — Beasley-Springer-Moro 1995 inverse-Φ, math.log / math.exp / hashlib); the *give-me-a-Goodhart-resistant-optimiser-and-prove-the-KL-bound-on-the-policy-deviation* primitive — the **safety** companion to Bandit / BayesOpt / Arbiter (cumulative-regret + PAC best-arm) and PolicyImprover (CRM-optimised policy) that bounds how far an optimiser may drift from a safe base under reward misspecification (Manheim-Garrabrant 2018 Goodhart variants); composes with Bandit (wrap select_arm in Quantilizer.select for safe exploration with KL-budget log(1/q) above the bandit's own policy; cost amplification 1/q sets the worst-case regret/safety trade-off), BayesOpt (q-quantilize EI selections to bound KL from a safe-prior Gaussian-process acquisition policy), Arbiter (the safety wrapper that converts an asymptotic best-arm-identification answer into a KL-bounded one), PolicyImprover (KL-bounded safe-improvement step: soft_quantilize(deployed_policy, CRM_score, kl_budget) lands exactly on the budgeted frontier — log(1/q) becomes the safety constant in the HCPI Bernstein-LCB gate), Persuader (q-quantilize over signal schemes bounds information design's KL from a truthful disclosure baseline), Strategist (risk-adjusted, KL-bounded meta-decision over recommendations), Refuter (adversarial search becomes a quantilizer when the falsification budget needs cost-amplification bound), Sampler (consume MCMC draws into quantilize_samples; Sampler's PSRF/ESS diagnostics gate the chain), Forecaster (PIT-calibrated quantilizer over calibrated predictions; Brier loss + cost amplification = decision-theoretic risk), DriftSentinel (a sudden change in the realised (1-q)-quantile threshold IS a drift signal on the base distribution), AttestationLedger (every Selection chain-hashes including the cryptographic commit to the base distribution, proxy utility, q, and seed), PrivacyAccountant (quantilization is post-processing of b — DP guarantee on b transfers verbatim to the quantilizer with no additional ε spent), Coordinator (every Goal whose execution chooses among candidate plans / prompts / models / tools is safety-budgeted by routing the candidate distribution through Quantilizer before action)
   filterer.py       # Filterer — Bayesian state-space filtering as a runtime primitive (Kalman 1960 linear-Gaussian Kalman filter with Joseph-form Bucy-Joseph 1968 stabilised covariance update / Information Filter (Maybeck 1979 §7.3) inverse-covariance dual / Potter 1963 / Bierman 1977 square-root Kalman; Extended Kalman Filter (Smith-Schmidt-McGee 1962; Anderson-Moore 1979 §8) with analytical Jacobian linearisation; Unscented Kalman Filter (Julier-Uhlmann 1997 *A new extension of the Kalman filter to nonlinear systems*) with scaled symmetric (2n+1) sigma-points, third-order Taylor-exact under affine transforms, Jacobian-free; Sequential Importance Resampling particle filter (Gordon-Salmond-Smith 1993 *Novel approach to nonlinear/non-Gaussian Bayesian state estimation*), Auxiliary Particle Filter (Pitt-Shephard 1999 *Filtering via simulation*) with one-step-lookahead pre-resampling, Bootstrap filter; Rauch-Tung-Striebel 1965 backward-sweep linear-Gaussian smoother; Carpenter-Clifford-Fearnhead 1999 systematic / Kitagawa 1996 stratified / Liu-Chen 1998 residual / multinomial resampling — all single-tier optimal); exact log-marginal likelihood via the Gaussian innovation decomposition for the Kalman family, importance-weight log-sum-exp for SMC (prequential MDL ⇒ composes with Compressor for state-space model selection); Bar-Shalom-Li-Kirubarajan 2001 normalised-innovation-squared (NIS) anytime χ² model-misspecification test; Wilson-Hilferty 1931 χ²(m) approximation for the NIS threshold; Box-Pierce 1970 innovation whiteness statistic; Crisan-Doucet 2002 *A survey of convergence results on particle filtering methods for practitioners* O(1/N) finite-sample MSE bound on bounded test functions; Kong-Liu-Wong 1994 effective-sample-size degeneracy diagnostic with auto-resample at ESS < N/2; Massart-DKW 1990 finite-sample distribution-free CDF band on the filtered marginal; tamper-evident SHA-256 fingerprint chain (genesis ``filterer.v1.genesis``) over every predict / update / resample / smooth event; thread-safe re-entrant lock; pure stdlib — list-of-lists matrix ops, Cholesky with adaptive jitter on numerical PD-failure, Joseph-form covariance update for numerical stability, Beasley-Springer-Moro 1995 inverse-Φ, no NumPy / SciPy; the *give-me-the-Bayesian-belief-over-the-latent-state-given-everything-I-have-observed-so-far* primitive — the **belief-update** foundation onto which every other decision primitive composes when the underlying world is sequential and partially observable — composes with ActiveInferencer (filtered posterior IS the belief over POMDP state — drop-in for the expected-free-energy planning step), Forecaster (the one-step predictive ``Filterer.predict()`` IS a calibrated forecast; PIT-uniformity tests compose with Forecaster's calibration e-process), Sampler (particle filter IS sequential importance sampling; Sampler's PWM Pareto-k tail diagnostic applies directly to the weight distribution; ADVI fits state-space hyperparameters on top), Compressor (the prequential log-marginal ``log p(y_t | y_{1:t-1})`` IS the MDL codelength of the observation stream under the supplied state-space model — Compressor selects the model class), Hedger (register competing state-space models as experts; negative log predictive is the per-step loss; AdaHedge learns the regime), DriftSentinel (standardised innovations are a martingale-difference under correct specification; CUSUM on NIS detects breaks; BOCPD localises change points), CausalDiscoverer (Filterer is the E-step in dynamic structural causal models — Murphy 2002), Refuter (refute the white-noise innovation assumption via QuickCheck-style metamorphic sample-path stress on autocorrelation bias), AttestationLedger (every predict / update / resample hash chains into the ledger so an auditor can replay the filtering trace byte-for-byte), Strategist (risk-adjusted decisions consume the filtered (mean, covariance) or particle approximation as the canonical belief input), PrivacyAccountant (DP-noisy observations widen R by 2σ²_DP; the (ε, δ) odometer advances on every update — composes with the runtime's regulatory mechanism), Coordinator (every Goal whose execution is sequential and partially-observable routes through Filterer.update() — the coordination engine maintains a calibrated belief over latent state, with anytime-valid receipts the compliance officer can sign before action)
   composer.py       # Composer — typed, certified compositional planning as a runtime primitive (classical STRIPS / ADL with conjunctive preconditions and add/delete-list effects (Fikes-Nilsson 1971; Pednault 1989) over a typed registry of operators; A* (Hart-Nilsson-Raphael 1968) with consistent admissible heuristics — h_zero (Dijkstra), h_goal_count, and h_landmark (HSP-style cheapest-add-list achiever, Helmert-Domshlak 2009) — over a state-space graph whose g-function is operator cost plus negative-log mean reliability; IDA* (Korf 1985) iterative-deepening for memory-bounded deep search; STRIPS goal regression (Fikes-Nilsson 1971; Bonet-Geffner 2001) for dense-operator / small-goal regimes; Tarjan 1972 SCC + Kahn 1962 topological sort on the predicate-flow graph to diagnose cyclic operator registrations; monomorphic Hindley-Milner unification (Robinson 1965; Milner 1978) on parameter and dataflow types with first-order substitution and the standard occurs-check; per-operator Beta-Bernoulli reliability posterior (Bayes 1763 / Laplace 1814) updated by ``observe()`` with a configurable prior (mean × strength or raw α/β); end-to-end PAC certificate composing per-step Clopper-Pearson 1934 lower bounds (closed form α^{1/n} at k=n, regularised incomplete beta inversion via stdlib continued fraction otherwise), Garivier-Cappé 2011 KL-inverse upper / lower confidence bounds, Maurer-Pontil 2009 empirical-Bernstein, and Hoeffding 1963 — Bonferroni-corrected across plan length — under both INDEPENDENT (product) and WORST_CASE (union-bound) regimes; Catoni 2007 PAC-Bayes lower bound on the average reliability of a posterior over operator choices; tamper-evident SHA-256 fingerprint chain (genesis ``composer.v1.genesis``) hashing every register / axiom / plan / verify / observe / execute event so an auditor can replay the planning trace byte-for-byte; pure stdlib — heapq priority queue, recursive descent type parser, JSON-canonical event payloads; the *plan-and-prove-the-bound-on-the-plan* primitive — the **planning** companion to Reasoner (deterministic SAT/Horn/ASP), Synthesizer (PBE program search), and Refuter (PAC falsification) — composes with Reasoner (register Reasoner.solve as a feasibility-gate operator), Refuter (register Refuter.refute as a PAC-gate operator before any downstream consumer), Bandit / BayesOpt / Arbiter (decision-theoretic operators whose own per-pull outcomes feed Composer.observe), Synthesizer (Composer plans over Synthesizer's DSL operators; Synthesizer fills in any unknown leaf), PrivacyAccountant (advanced composition over per-operator ε contributions reported alongside the reliability bound), AttestationLedger (every certificate and observation hash chains into the ledger), Coordinator (the natural target — every Goal compiles to a Plan, every PlanStep is a primitive call), Cartographer (curriculum step → ``operator`` registration so Cartographer's ready/1 predicate gates plan emission)
+  intender.py       # Intender — inverse reinforcement learning / preference-based reward inference as a runtime primitive (MaxEnt IRL (Ziebart-Maas-Bagnell-Dey 2008 *Maximum entropy inverse reinforcement learning*; Ziebart 2010 thesis) with closed-form feature-matching gradient ``∇L(θ) = μ̂_E − E_{π_soft(θ)}[φ]`` and concave L2-penalised log-likelihood — converges to the unique global optimum; Bayesian IRL (Ramachandran-Amir 2007 *Bayesian inverse reinforcement learning*) random-walk Metropolis-Hastings on Boltzmann-rationality likelihood under Gaussian prior, Roberts-Rosenthal 2009 adaptive proposal scale targeting the 0.234 acceptance optimum, Geweke 1992 two-window z-score stationarity diagnostic before reporting credible regions; preference-based reward learning (Christiano-Leike-Brown-Martic-Legg-Amodei 2017 *Deep reinforcement learning from human preferences*; Bradley-Terry 1952) convex negative-log-likelihood ``−Σ log σ(β θᵀ (Φ(τ_w) − Φ(τ_l)))`` with L2 regularisation; max-margin apprenticeship learning (Abbeel-Ng 2004 *Apprenticeship learning via inverse reinforcement learning*) unit-L2 projection step; soft Q-iteration (Haarnoja-Tang-Abbeel-Levine 2017) inner solver returning the soft Q-function, soft value, and stochastic policy ``π_soft(a | s) ∝ exp(Q(s, a))``; behavioural cloning (Pomerleau 1989 *ALVINN*) α-Laplace-smoothed empirical state-conditional action policy as baseline; identifiability bound (Cao-Cohen-Szepesvári 2021 *Identifiability in inverse reinforcement learning*) rank/nullity/conditioning of the feature matrix — the dimensions of reward space the data cannot distinguish; KL(π_soft ‖ π_BC) as Quantilizer's safe-deployment KL budget; Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequence on held-out preference agreement; Maurer-Pontil 2009 empirical-Bernstein / Hoeffding 1963 finite-sample LCB / UCB on every aggregate statistic; PAC-Bayes regret bound (McAllester 1999) on the preference-learning loss against any reference prior on θ; tamper-evident SHA-256 fingerprint chain (genesis ``intender.v1.genesis``) over every observe / fit / preference / report event so AttestationLedger replays the inference trace byte-for-byte; thread-safe re-entrant lock; pure stdlib — list-of-lists matrices, log-sum-exp with explicit max-subtraction, ``random.Random(seed)`` for full reproducibility, no NumPy / SciPy; the *learn-what-the-user-actually-values-from-observed-behaviour-with-an-identifiability-bound* primitive — the **preference-elicitation** kernel onto which the rest of the runtime composes when reward is not given — composes with ActiveInferencer (learned ``θᵀφ`` becomes the log-preference ``log P(o | C)`` in the active-inference generative model — closes the loop where the coordination engine learns user preferences before planning under them), Strategist (risk-adjusted action selection consumes ``E[r(s, a)]`` from Intender's posterior with credible region as the uncertainty input), Quantilizer (Intender's ``KL(π_soft ‖ π_BC)`` IS the safe-deployment KL budget; quantilize on the learned soft policy → certified not-too-different-from-expert), Bandit / BayesOpt (pointwise reward queries on novel (s, a) consume ``θ̂ᵀφ(s, a)`` from MAP or BIRL posterior mean; acquisition functions read posterior variance for Thompson sampling and UCB), Composer (plans whose terminal value is ``θᵀφ`` get parameterised by the posterior — Composer's PAC certificate carries Intender's identifiability bound forward), Ranker (Ranker fits a ranking, Intender fits a reward — they compose; Ranker's pairwise comparisons feed Intender as preference observations, Intender's reward feeds Ranker as item utility), Mechanism / Persuader (both require a model of the receiver's utility; Intender supplies a learned one from observed behaviour), PolicyImprover (Intender supplies the reward, PolicyImprover deploys safely under HCPI — end-to-end RLHF pipeline), Refuter (refute candidate rewards via QuickCheck-style stress on the feature-matching residual), DriftSentinel (per-trajectory log-likelihood under the fitted reward is a martingale-difference under the null "no preference drift" — CUSUM detects user-preference shifts), AttestationLedger (every observe / fit / preference / report event hash chains into the ledger so an auditor can replay the inference trace byte-for-byte), Coordinator (every Goal that requires aligning to user behaviour routes through Intender — the coordination engine learns what users want from demonstrations and preferences, with anytime-valid certificates the compliance officer can sign before action)
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
   skills.py         # markdown skill library with retrieval (procedural memory)
@@ -2978,6 +2979,174 @@ correctly leave abstaining experts' cumulative losses unchanged,
 snapshot/restore round-trips state exactly, and the realised
 cumulative regret respects the closed-form bound across all six
 algorithms on a 200-round IID benchmark.
+
+## Intender — inverse reinforcement learning as a runtime primitive
+
+`Bandit`, `BayesOpt`, `Strategist`, `Composer`, `ActiveInferencer`,
+`Quantilizer` — every other decision primitive in this runtime
+optimises *against a given reward function*. In every realistic
+deployment that reward is **not given**: users hand the coordination
+engine demonstrations, partial trajectories, thumbs-up/down on
+candidate plans, and pairwise preferences. Before any downstream
+optimiser is allowed to run, the runtime has to *infer what the user
+values*.
+
+`Intender` (Ng-Russell 2000 *Algorithms for inverse reinforcement
+learning*; Ziebart 2008; Ramachandran-Amir 2007; Christiano et al.
+2017) is the runtime primitive that solves the four canonical
+preference-inference problems under a single typed API: maximum-entropy
+IRL from trajectories, Bayesian IRL with posterior credible regions,
+Bradley-Terry preference learning from pairwise comparisons, and
+behavioural cloning as the baseline policy. Every fit returns a
+closed-form feature-matching residual, the soft-optimal policy under
+the learned reward, the KL distance from behavioural cloning (the
+natural safe-deployment KL budget for Quantilizer), an explicit
+identifiability bound (Cao-Cohen-Szepesvári 2021) on the dimensions
+of reward space the data cannot distinguish, anytime-valid finite-
+sample confidence sequences on every aggregate statistic, and a
+tamper-evident SHA-256 fingerprint chain over every observation, fit,
+and report event.
+
+### Algorithms shipped
+
+  * **MaxEnt IRL** (Ziebart-Maas-Bagnell-Dey 2008 *Maximum entropy
+    inverse reinforcement learning*; Ziebart 2010 thesis). Concave
+    log-likelihood
+
+        `L(θ) = (1/N) Σ_i Σ_t θᵀ φ(s_t^i, a_t^i) − log Z(θ)`
+
+    with closed-form gradient `μ̂_E − E_{π_soft(θ)}[φ]` (the *feature-
+    matching residual*); optimised by gradient ascent with L2 prior
+    and adaptive step. Soft value iteration uses log-sum-exp with
+    explicit max-subtraction for numerical stability.
+
+  * **Bayesian IRL** (Ramachandran-Amir 2007). Random-walk
+    Metropolis-Hastings on the Boltzmann posterior
+    `p(θ | τ) ∝ exp(β Σ_t (Q*(s_t, a_t; θ) − V*(s_t; θ))) · N(0, σ_p²)`
+    with Roberts-Rosenthal 2009 adaptive proposal scale converging
+    toward the 0.234 acceptance target; Geweke 1992 stationarity test
+    on the chain before reporting credible regions.
+
+  * **Preference-based reward learning** (Christiano-Leike-Brown-
+    Martic-Legg-Amodei 2017; Bradley-Terry 1952). Convex negative
+    log-likelihood
+
+        `−Σ_k log σ(β θᵀ (Φ(τ_winner_k) − Φ(τ_loser_k)))`
+
+    fitted by gradient ascent with L2 regularisation; returns training
+    and held-out agreement rate with anytime-valid CS.
+
+  * **Apprenticeship learning** (Abbeel-Ng 2004). Max-margin
+    projection step that returns a unit-L2 reward perpendicular to the
+    closest-seen feature-expectation; the inner loop of an
+    apprenticeship-learning outer iteration.
+
+  * **Behavioural cloning** (Pomerleau 1989 *ALVINN*). α-Laplace-
+    smoothed empirical state-conditional action policy; the baseline
+    against which IRL fits are compared.
+
+  * **Soft Q-iteration** (Haarnoja-Tang-Abbeel-Levine 2017). The
+    inner solver used by MaxEnt and BIRL — returns the soft Q-function,
+    soft value function, and the stochastic policy
+    `π_soft(a | s) ∝ exp(Q(s, a))`.
+
+### Anytime-valid certificates
+
+  * **Feature-matching residual** ‖μ̂_E − E_{π_soft}[φ]‖ — at the MAP
+    fit this is ≤ ε_optim of the gradient-descent tolerance, the
+    closed-form certificate that the learned reward *reproduces* the
+    expert's observed behaviour.
+
+  * **Posterior credible region** on θ — elementwise α and 1−α
+    quantiles from the BIRL chain, gated by a Geweke 1992 stationarity
+    check (|z| < 1.96 ⇒ stationary at 95%).
+
+  * **Preference agreement rate** with a Howard-Ramdas-McAuliffe-
+    Sekhon 2021 anytime-valid confidence sequence — stop at any
+    data-dependent time without invalidating coverage.
+
+  * **Identifiability bound** (Cao-Cohen-Szepesvári 2021 *Identifiability
+    in inverse reinforcement learning*) — the rank, nullity, and
+    conditioning of the centred feature matrix. Nullity > 0 means the
+    data cannot distinguish a non-trivial linear subspace of rewards;
+    downstream primitives can refuse to optimise in that subspace.
+
+  * **Soft KL bound** `KL(π_soft(θ̂) ‖ π_BC)` — the deployment KL
+    budget Quantilizer consumes.
+
+  * **Empirical Bernstein** (Maurer-Pontil 2009) / **Hoeffding** finite-
+    sample LCB / UCB on every aggregate statistic.
+
+  * **Tamper-evident SHA-256 fingerprint chain** — every observation,
+    fit, and report event chain-hashes into `AttestationLedger`;
+    replay-deterministic given the seed.
+
+### Composition with the rest of the runtime
+
+  * **ActiveInferencer** — the learned reward `θᵀφ` becomes the
+    log-preference term `log P(o | C)` in the active-inference
+    generative model. Intender closes the loop in which the
+    coordination engine must learn user preferences *before* planning
+    under them.
+
+  * **Strategist** — risk-adjusted action selection consumes
+    `E[r(s, a)]` from Intender's posterior; the credible region is the
+    uncertainty input to risk-sensitive policies.
+
+  * **Quantilizer** — Intender's `KL(π_soft ‖ π_BC)` is the natural
+    safe-deployment KL budget for KL-regularised quantilisation.
+
+  * **Bandit / BayesOpt** — pointwise reward queries on novel (s, a)
+    use `θ̂ᵀφ(s, a)` from MAP or the posterior mean from BIRL.
+    Acquisition functions read the BIRL posterior variance for
+    Thompson sampling and UCB.
+
+  * **Composer** — plans whose terminal value is `θᵀφ` get
+    parameterised by the posterior; Composer's PAC certificate
+    carries Intender's identifiability bound forward.
+
+  * **Ranker** — Ranker fits a *ranking* over items; Intender fits a
+    *reward* over states. They compose: Ranker's pairwise comparisons
+    feed Intender as preference observations, Intender's reward feeds
+    Ranker as item utility.
+
+  * **Mechanism / Persuader** — both require a model of the receiver's
+    utility; Intender supplies a *learned* model from observed
+    behaviour rather than assuming a known one.
+
+  * **PolicyImprover** — Intender supplies the reward; PolicyImprover
+    deploys safely under HCPI. End-to-end RLHF pipeline.
+
+  * **Refuter** — refute candidate rewards via QuickCheck-style stress
+    on the feature-matching residual.
+
+  * **DriftSentinel** — the per-trajectory log-likelihood under the
+    fitted reward is a martingale-difference under the null
+    "no preference drift"; CUSUM detects user-preference shifts.
+
+  * **AttestationLedger** — every observe / fit / preference event
+    chain-hashes into the ledger.
+
+### Investor framing
+
+> The runtime cannot align an agent to a user's preferences without
+> first *inferring* those preferences from observed behaviour. The
+> Intender is the universal preference-elicitation primitive: it turns
+> demonstrations and thumbs-up/down signals into a calibrated reward
+> function the rest of the runtime can optimise — with explicit
+> identifiability bounds, posterior uncertainty, anytime-valid
+> confidence sequences, and tamper-evident audit trails. This is the
+> RLHF kernel as a runtime call: one API the coordinator hands expert
+> trajectories to, one API that returns a posterior over rewards
+> every other primitive composes with.
+
+See `examples/intender_demo.py` for the end-to-end loop and
+`tests/test_intender.py` for the contracts: MaxEnt IRL recovers a
+positive goal-feature weight on a 3×3 gridworld, Bradley-Terry
+preference fitting concentrates on the winning trajectory direction,
+BIRL's MCMC chain produces sensible posterior credible regions with
+acceptance rate in the Roberts-Rosenthal band, and the soft-optimal
+policy is a valid conditional distribution everywhere.
 
 ## HTTP / SSE surface
 
