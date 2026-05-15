@@ -1110,6 +1110,25 @@ from agi.robustifier import (
     wasserstein1_radius_for_coverage,
 )
 from agi.runtime import Runtime, Session, SessionConfig, SessionState
+from agi.sampler import (
+    ADVIReport,
+    Diagnostics as SamplerDiagnostics,
+    ImportanceReport,
+    SMCReport,
+    SampleReport,
+    Sampler,
+    autocorr as sampler_autocorr,
+    autocorr_time as sampler_autocorr_time,
+    banana_grad,
+    banana_log_density,
+    ess_bulk as sampler_ess_bulk,
+    ess_tail as sampler_ess_tail,
+    gaussian_grad,
+    gaussian_log_density,
+    geweke_z,
+    pareto_k,
+    rhat as sampler_rhat,
+)
 from agi.scheduler import (
     CycleError,
     ParallelScheduler,
