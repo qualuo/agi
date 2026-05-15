@@ -1139,6 +1139,30 @@ from agi.scheduler import (
 from agi.selfeval import EvalItem, EvalReport, SelfEvalBank
 from agi.skillmine import SkillCandidate, mine_skills, propose_skill_from_cluster
 from agi.skills import Skill, SkillLibrary
+from agi.synthesizer import (
+    DFA,
+    DSL,
+    INTEGER_DSL,
+    LIST_DSL,
+    Op as SynthOp,
+    Program as SynthProgram,
+    STRING_DSL,
+    SynthesisReport,
+    Synthesizer,
+    T_ANY,
+    T_BOOL,
+    T_INT,
+    T_LIST_INT,
+    T_LIST_STR,
+    T_STR,
+    Type as SynthType,
+    call as synth_call,
+    const as synth_const,
+    lgg,
+    lgg_many,
+    make_dsl,
+    var as synth_var,
+)
 from agi.strategist import (
     CONF_HIGH as STRAT_CONF_HIGH,
     CONF_LOW as STRAT_CONF_LOW,
