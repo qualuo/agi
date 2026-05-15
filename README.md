@@ -66,6 +66,7 @@ agi/                # runtime + agent + reference coordinator
   ranker.py         # Ranker — paired-comparison and partial-ranking inference as a runtime primitive (Bradley-Terry 1952 MM and MAP (Hunter 2004) / Plackett-Luce 1975 MM / Thurstone-Mosteller Case-V MM / Elo 1978 / Glicko 1995 / Glicko-2 2012 with Illinois bracketing on the volatility / TrueSkill 2007 with rectified-Gaussian moment matching and draw-margin support); Tarjan 1972 strongly-connected-component identifiability diagnostic; Hajek-Oh-Xu 2014 ℓ∞ top-K sample-complexity bound; anytime-valid confidence intervals via Hoeffding 1963, Maurer-Pontil 2009 empirical-Bernstein, and Howard-Ramdas-McAuliffe-Sekhon 2021 time-uniform CS on every pairwise win-rate; Fisher-information / Gaussian-prior Hessian standard errors; McFadden pseudo-R²; PAC-certified top-K decision; replay-deterministic state(); tamper-evident SHA-256 fingerprint chaining every observation; Kendall-τ and Spearman-ρ rank correlations; pure stdlib — Beasley-Springer-Moro inverse-Φ, list-of-lists Cholesky on the Fisher information, iterative Tarjan SCC; the *rank-N-candidates-with-confidence-from-pairwise-judgments* primitive — the relative-information dual of Bandit (cumulative regret) and Arbiter (PAC best-arm) — composes with Arbiter (full-ranking dual of single-best-arm PAC), Bandit (dueling bandits — Yue-Joachims 2009; Komiyama et al. 2015), Strategist (pairwise lift CI as a strategy-comparison primitive), Diplomat (rank the players in the extensive-form game), TruthSerum (use judge trust-scores as Ranker observations), Auditor (BH/FDR over many pairwise tests), DriftSentinel (forget(item, halflife) when a player's CUSUM trips), Refuter (falsify Tversky 1969 stochastic-transitivity claims), PrivacyAccountant (DP-private W_ab releases, Hay-Rastogi-Miklau-Suciu 2009), AttestationLedger (every top-K decision hashes into the chain), Forecaster (PIT-calibrate the predicted win-probability stream)
   bayesopt.py       # BayesOpt — Bayesian optimisation as a runtime primitive (Gaussian-process surrogate with stationary kernels — squared-exponential / Matérn-5/2 / Matérn-3/2 with per-dimension ARD lengthscales (MacKay 1994), Cholesky-solved posterior mean and variance (Rasmussen-Williams 2006), analytic input-gradients for gradient-ascent acquisition refinement; GP-UCB (Srinivas-Krause-Kakade-Seeger 2010 — anytime cumulative regret R_T ≤ √(C₁ T β_T γ_T), C₁ = 8 / log(1 + σ_f²/σ²)) / Expected Improvement (Močkus 1974; Jones-Schonlau-Welch 1998 — closed-form EI(x) = (μ−f*)Φ(z) + σφ(z) with Bull 2011 ``O(n^{-ν/d} log^α n)`` simple-regret on Matérn) / Probability of Improvement (Kushner 1964) / Thompson sampling on the GP posterior via Halton candidate set (Kandasamy et al. 2018 — Õ(√(T γ_T β_T)) frequentist regret) / Knowledge Gradient (Frazier-Powell-Dayanik 2009 — quasi-Monte-Carlo one-step-lookahead on the posterior maximiser); batch / parallel suggestions via constant-liar fantasy (Ginsbourger-Le Riche-Carraro 2010); mixed continuous + categorical domains via encoding-based GP; golden-section log-marginal-likelihood lengthscale learning every K observations (Rasmussen-Williams §5.4); anytime instantaneous regret upper bound 2 √β_t · max_x σ_{t-1}(x); information-gain accumulator γ̂_t = ½ Σ log(1 + σ²_t/σ_n²); tamper-evident SHA-256 fingerprint over (config, observation history) on every BayesOptReport; replay-deterministic given config.seed; pure stdlib — inline Cholesky / triangular solve / Beasley-Springer-Moro inverse-Φ / Halton 1960 low-discrepancy quasi-random); the *pick-the-next-expensive-query-and-prove-its-regret* primitive — the continuous-arm dual of Bandit (which is K-armed cumulative regret) and Arbiter (which is finite-arm PAC best-arm); composes with Bandit (warm-start GP with a categorical Bandit's posterior means; bandit-of-acquisitions meta-loop), Arbiter (PAC certification on the BayesOpt incumbent), Sampler (full-posterior Thompson via MCMC over GP hyperparameters), ExperimentDesigner (BayesOpt as the inner loop of any cost-aware design), Refuter (refute that the posterior covers the truth via held-out coverage), Forecaster (treat μ_n(x) ± σ_n(x) as a calibrated forecast; PIT applies), Auditor (BH on per-candidate improvement e-values), PrivacyAccountant (DP-BayesOpt via noisy y_t with widened regret bound), AttestationLedger (replay-verifiable suggest→observe receipts), Strategist (BayesOpt as the strategy when STRAT_EXPLOIT_CONTINUOUS), Coordinator (one expensive black-box per PlanStep)
   reasoner.py       # Reasoner — symbolic logical reasoning as a runtime primitive (DPLL (Davis-Putnam-Logemann-Loveland 1962) with unit propagation + pure-literal elimination / CDCL (Marques-Silva-Sakallah 1996 GRASP, Moskewicz et al. 2001 Chaff, Eén-Sörensson 2003 MiniSat) with two-watched literals (Zhang-Stickel 1996), VSIDS branching (Moskewicz et al. 2001), 1-UIP clause learning (Zhang-Madigan-Moskewicz-Malik 2001), and Luby restarts (Luby-Sinclair-Zuckerman 1993) / Walk-SAT (Selman-Kautz-Cohen 1994) with Schöning 1999 noise / resolution refutation (Robinson 1965) reconstructing an UNSAT proof chain ending in the empty clause / semi-naïve Datalog forward chaining (Bancilhon-Maier-Sagiv-Ullman 1986; Ullman 1989) with Robinson 1965 unification on uppercase-Prolog-convention Datalog variables / SLD-resolution backward chaining (Kowalski 1974) with full backtracking + subsumption tabling (Tamaki-Sato 1986) so left-recursive Horn rules terminate / Answer Set Programming stable-model semantics (Gelfond-Lifschitz 1988) via guess-and-check on NaF atoms with reduct evaluation and stratified-negation fast path (Apt-Blair-Walker 1988) + automatic Herbrand-universe grounding for rules with Datalog variables); Clopper-Pearson 1934 anytime-valid finite-sample upper bound on randomised-solver failure rate (closed form 1−α^{1/n} at k=0, regularised incomplete beta inversion via stdlib continued fraction otherwise); Hoeffding 1963 / Maurer-Pontil 2009 empirical-Bernstein half-widths for model-count importance sampling; Tarjan 1972 iterative SCC on the rule dependency graph for negation-stratification detection; tamper-evident SHA-256 fingerprint chaining every clause, fact, rule, and decision (replay-deterministic given seed); pure stdlib — no Z3, no SMT-LIB, no PEG parser; the *give-me-a-proof-or-give-me-a-counterexample* primitive — the **deterministic-logic** dual of Refuter (which falsifies probabilistic claims with PAC bounds) and the **discrete-logic** complement of Synthesizer (which fills in programs from examples) — composes with Refuter (Reasoner certifies what Refuter cannot refute after a CS-large budget), Synthesizer (Reasoner as the CEGIS verifier; Solar-Lezama 2008 — encode correctness predicate, Reasoner finds counter-example or certifies UNSAT), Negotiator / MechanismDesigner / PortfolioOptimizer (feasibility oracle for hard constraints — integrality, conflicting-resources, capacity), Equilibrator / Diplomat (Boolean side-conditions on equilibria solved before LP / CFR), CausalDiscoverer (Horn-program encoding of v-structure orientation rules), Auditor (BH/FDR control of the false-proof rate across simultaneous reasoning tasks), Cartographer (prereq-DAG forward chain → ready/1 for next-task pick), AttestationLedger (proof tree from backward_chain + resolution proof from UNSAT close hash directly into the ledger), PrivacyAccountant (odometer advance on each add_fact when facts came from sensitive data), Strategist (entailment query "does policy A satisfy invariant I in every model of these rules" before the risk-adjusted score is quoted)
+  compressor.py     # Compressor — Minimum Description Length hypothesis selection as a runtime primitive (refined-MDL Normalized Maximum Likelihood (Shtarkov 1987; Rissanen 1996) with exact Shtarkov-sum log C_n for Bernoulli (closed form), Multinomial-of-k (Mononen-Myllymäki 2008 O(k) recurrence), Geometric / Poisson / Gaussian-known-σ / Gaussian-unknown-σ / Histogram / Markov-of-order-r — luckiness-NML with coordinator-supplied bounded parameter ranges for non-compact parameter spaces (Grünwald 2007 Ch. 7); universal codes for the positive integers — Elias-γ / Elias-δ (Elias 1975) and Rissanen 1983 log* with universal constant c₀ = 2.865064; classical two-part Rissanen 1978 MDL with the (k/2) log n optimal-precision parameter code as a sanity-check against NML; prequential / sequential Dawid 1984 plug-in codes — Krichevsky-Trofimov 1981 (½, ½)-Dirichlet for binary and multinomial sequences (minimax regret matches NML to O(1)), Laplace 1814 rule (Dirichlet 1) as a textbook baseline, normal-inverse-gamma Bayesian Student-t mixture for the Gaussian families; Schwarz 1978 BIC and Akaike 1974 AIC for cross-method consistency checks; Vovk 1990 strong-aggregating-algorithm per-symbol regret bound on the runner-up (free-of-distribution); pairwise Bayes-factor comparison plus Stone 1974 / Geisser 1975 leave-one-out cross-check; anytime-valid online observation — every per-symbol call returns the prequential codelength increment, accumulates into a running total that matches the batch KT bit-exactly, and stays valid at every stopping time; tamper-evident SHA-256 fingerprint chain (genesis ``compressor.v1.genesis``) hashing every register / fit / score / select / observe / compare / report event so an auditor can replay the model-selection trace byte-for-byte; thread-safe re-entrant lock; pure stdlib — math.lgamma / math.log / math.exp / hashlib; the *which-model-class-itself-is-best-supported-by-the-data* primitive — the **meta-decision** that no other primitive in the runtime supplies: Solomonoff 1964's compression-equals-induction thesis, Rissanen 1978's MDL, Hutter 2005's universal AGI, behind one API — composes with Sampler (Compressor picks the model class, Sampler simulates the posterior in it), Forecaster (Compressor monitors prequential codelength → triggers re-fit on misspec), DriftSentinel (Compressor's rolling-window codelength IS the drift statistic), Refuter (codelength gap → Bayes factor → reject/accept "model M is best"), Reasoner (Compressor scores competing boolean encodings of a structured constraint), Composer (Compressor ranks candidate plan structures by joint MDL of formula + outcomes), PrivacyAccountant (codelength releases under DP, additive composition over streams), AttestationLedger (every codelength event canonicalised SHA-256), Strategist (which model class to pivot to → MDL-best registered candidate)
   composer.py       # Composer — typed, certified compositional planning as a runtime primitive (classical STRIPS / ADL with conjunctive preconditions and add/delete-list effects (Fikes-Nilsson 1971; Pednault 1989) over a typed registry of operators; A* (Hart-Nilsson-Raphael 1968) with consistent admissible heuristics — h_zero (Dijkstra), h_goal_count, and h_landmark (HSP-style cheapest-add-list achiever, Helmert-Domshlak 2009) — over a state-space graph whose g-function is operator cost plus negative-log mean reliability; IDA* (Korf 1985) iterative-deepening for memory-bounded deep search; STRIPS goal regression (Fikes-Nilsson 1971; Bonet-Geffner 2001) for dense-operator / small-goal regimes; Tarjan 1972 SCC + Kahn 1962 topological sort on the predicate-flow graph to diagnose cyclic operator registrations; monomorphic Hindley-Milner unification (Robinson 1965; Milner 1978) on parameter and dataflow types with first-order substitution and the standard occurs-check; per-operator Beta-Bernoulli reliability posterior (Bayes 1763 / Laplace 1814) updated by ``observe()`` with a configurable prior (mean × strength or raw α/β); end-to-end PAC certificate composing per-step Clopper-Pearson 1934 lower bounds (closed form α^{1/n} at k=n, regularised incomplete beta inversion via stdlib continued fraction otherwise), Garivier-Cappé 2011 KL-inverse upper / lower confidence bounds, Maurer-Pontil 2009 empirical-Bernstein, and Hoeffding 1963 — Bonferroni-corrected across plan length — under both INDEPENDENT (product) and WORST_CASE (union-bound) regimes; Catoni 2007 PAC-Bayes lower bound on the average reliability of a posterior over operator choices; tamper-evident SHA-256 fingerprint chain (genesis ``composer.v1.genesis``) hashing every register / axiom / plan / verify / observe / execute event so an auditor can replay the planning trace byte-for-byte; pure stdlib — heapq priority queue, recursive descent type parser, JSON-canonical event payloads; the *plan-and-prove-the-bound-on-the-plan* primitive — the **planning** companion to Reasoner (deterministic SAT/Horn/ASP), Synthesizer (PBE program search), and Refuter (PAC falsification) — composes with Reasoner (register Reasoner.solve as a feasibility-gate operator), Refuter (register Refuter.refute as a PAC-gate operator before any downstream consumer), Bandit / BayesOpt / Arbiter (decision-theoretic operators whose own per-pull outcomes feed Composer.observe), Synthesizer (Composer plans over Synthesizer's DSL operators; Synthesizer fills in any unknown leaf), PrivacyAccountant (advanced composition over per-operator ε contributions reported alongside the reliability bound), AttestationLedger (every certificate and observation hash chains into the ledger), Coordinator (the natural target — every Goal compiles to a Plan, every PlanStep is a primitive call), Cartographer (curriculum step → ``operator`` registration so Cartographer's ready/1 predicate gates plan emission)
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
@@ -2505,6 +2506,165 @@ See `examples/ranker_demo.py` for the eight-algorithm bake-off, the
 Hajek-Oh-Xu sample-complexity envelope, an online TrueSkill trace, and
 the PAC-certified top-K decision; `tests/test_ranker.py` verifies the
 mathematical contract — 120 tests, all passing.
+
+## Compressor — Minimum Description Length hypothesis selection as a runtime primitive
+
+The compression principle — *the shortest description of the data is
+the best hypothesis* — is the deepest unifying thread in the
+foundations of intelligence: Solomonoff 1964, Rissanen 1978, Hutter
+2005.  Every other primitive in this runtime returns a *decision*
+(which arm to pull, which experiment to design, which plan to
+execute).  None return the meta-decision of *which model class itself
+best supports the data*.  `Compressor` does.
+
+```python
+from agi.compressor import (
+    Compressor, BERNOULLI, MULTINOMIAL, MARKOV, GAUSSIAN, UNIFORM_DISCRETE,
+    NML, TWO_PART, PREQUENTIAL, BIC, AIC,
+    elias_gamma_bits, elias_delta_bits, rissanen_logstar_bits,
+    log_bernoulli_nml_constant, log_multinomial_nml_constant,
+    kt_codelength_binary, kt_codelength_multinomial,
+)
+
+C = Compressor()
+C.register("ber",  BERNOULLI)
+C.register("uni",  UNIFORM_DISCRETE, k=2)
+C.register("k4",   MULTINOMIAL, k=4)
+C.register("m1",   MARKOV, k=2, r=1)
+C.register("gauss", GAUSSIAN, sigma_min=0.01, sigma_max=10.0)
+
+# Codelength of a candidate model on a data prefix.
+cl = C.codelength("ber", [0, 1, 1, 0, 1, 0, 1])
+cl.ml, cl.parametric_complexity, cl.stochastic_complexity  # NML = ml + pc
+cl.prequential, cl.two_part, cl.bic, cl.aic
+cl.bits                                                    # headline (NML in bits)
+
+# Pick the MDL-optimal model with a regret certificate.
+sel = C.select(stream)
+sel.winner                # "m1"
+sel.gap_bits              # winner is 234.7 bits shorter than runner-up
+sel.bayes_factor          # exp(|gap|) — 10^70 in favour of winner
+sel.per_symbol_regret_bits  # Vovk (1990) strong-aggregator bound
+sel.fingerprint           # tamper-evident SHA-256
+
+# Pairwise comparison.
+cmp = C.compare("ber", "uni", stream)
+cmp.delta_bits, cmp.bayes_factor_for_a, cmp.sym_kl_predictive, cmp.cv_delta_nats
+
+# Anytime online (Dawid 1984 prequential).  Each call returns one
+# codelength increment; the total is the prequential codelength of the
+# whole prefix and stays valid at every stopping time.
+for x in stream:
+    C.online_observe("ber", x)
+C.online_state("ber").prequential_nats         # running total (equals KT)
+
+# Aggregate report — every fit, every selection, the audit-trail fingerprint.
+rep = C.report()
+rep.fingerprint        # replay-verifiable via AttestationLedger
+```
+
+### Algorithms shipped
+
+**Universal codes for the positive integers** (Rissanen 1983) — used
+whenever the codelength of a structural choice is itself encoded.
+
+| Code            | Reference        | Codelength formula                                      |
+|-----------------|------------------|---------------------------------------------------------|
+| `elias_gamma`   | Elias 1975       | `2⌊log₂ n⌋ + 1`                                         |
+| `elias_delta`   | Elias 1975       | `⌊log₂ n⌋ + 2⌊log₂(⌊log₂ n⌋+1)⌋ + 1`                    |
+| `rissanen_logstar` | Rissanen 1983 | `log₂ c₀ + log₂ n + log₂ log₂ n + …`  (`c₀ = 2.865064`) |
+
+**Refined-MDL parametric complexity (`log C_n`)** — the Shtarkov sum
+(Shtarkov 1987, Rissanen 1996) of the Normalized Maximum Likelihood
+code, computed exactly when closed-form available:
+
+| Model class             | Exact `log C_n`                                                | Reference                            |
+|-------------------------|----------------------------------------------------------------|--------------------------------------|
+| `bernoulli`             | `∑ₖ binom(n,k)(k/n)^k((n-k)/n)^(n-k)` — exact + asymptotic     | Rissanen-Roos-Myllymäki 2010         |
+| `multinomial(k)`        | Mononen-Myllymäki linear-time recurrence                       | Mononen-Myllymäki 2008               |
+| `geometric`             | `½ log(n/2π) + log π`                                          | Grünwald 2007 Ch. 7                  |
+| `poisson` (bounded λ)   | `½ log(n/2π) + log 2(√λ_max − √λ_min)`                         | Rissanen 1996                        |
+| `gaussian_known_sigma`  | `log((μ_max − μ_min)/(σ√(2πe/n)))`                             | Grünwald 2007 eq. 11.5               |
+| `gaussian`              | `log n − log π + log Γ((n-1)/2) − log Γ(n/2) + log(σ_max/σ_min)` | Rissanen 1996                       |
+| `markov(k, r)`          | `∑ₛ log C_{n_s}(k)` over context states `s`                    | Krichevsky-Trofimov 1981             |
+| `histogram(m)`          | Multinomial-NML with density correction `n log(width)`         | Rissanen-Speed-Yu 1992               |
+| `uniform_discrete(k)`   | `0` (no free parameters)                                       | baseline                             |
+| `constant`              | `0` if the data matches; `∞` otherwise                         | hard baseline                        |
+
+**Prequential / sequential codes** (Dawid 1984) — anytime-valid
+plug-in predictives whose total codelength is computable online and
+matches NML up to ``O(1)``:
+
+| Code                       | Reference                  | Use                                  |
+|----------------------------|----------------------------|--------------------------------------|
+| Krichevsky-Trofimov binary | Krichevsky-Trofimov 1981   | `(n_x + ½)/(t+1)` — minimax-regret   |
+| KT multinomial             | Krichevsky-Trofimov 1981   | Symmetric Dirichlet(½) plug-in       |
+| Laplace's rule             | Laplace 1814               | Dirichlet(1) — looser sanity check   |
+| Gaussian Student-t mixture | Bernardo-Smith 1994        | Bayes-marginal under Jeffreys prior  |
+
+**Codelength selection methods.**
+
+| Method        | Headline use                                                                 |
+|---------------|------------------------------------------------------------------------------|
+| `ml`          | Maximum-likelihood log-loss (always over-fits; included for diagnostics)     |
+| `nml`         | Refined-MDL: minimax-optimal regret (Shtarkov-Rissanen)                      |
+| `two_part`    | Classical Rissanen two-part — sanity-checks NML where the recurrence is hard |
+| `prequential` | Sequential / Dawid online; anytime-valid                                     |
+| `bic`         | Schwarz 1978 — `(k/2) log n` parametric penalty                              |
+| `aic`         | Akaike 1974 — `k` parametric penalty                                         |
+
+### Anytime-valid online prediction
+
+KT and Dirichlet plug-ins are intrinsically sequential.  Two
+coordinators sharing a stream can fork at any prefix; the codelengths
+recombine additively.  The runtime exposes this as a streaming model-
+selection endpoint: `Compressor.online_observe(model, x)` returns the
+codelength increment of `x` under `model`'s current online state,
+mutates that state in-place, and accumulates into a running total that
+matches the batch KT codelength bit-exactly.
+
+### Regret certificates
+
+For two models with codelengths `L_a, L_b` on the same data, the gap
+`ΔL = L_a − L_b` gives a Bayes factor of `exp(|ΔL|)` (nats).  The
+`select(...)` call returns the gap to the runner-up, the Bayes factor,
+and the **Vovk (1990) strong-aggregating-algorithm** bound on the
+runner-up's per-symbol excess loss:
+
+    `regret_per_symbol ≤ max(0, gap − log K) / n`
+
+where `K` is the number of registered candidates.  The bound is
+free-of-distribution and holds even if the data is generated outside
+the union of registered model classes.
+
+### Composition with the rest of the runtime
+
+| Primitive          | Role                                                                       |
+|--------------------|----------------------------------------------------------------------------|
+| `Sampler`          | Compressor picks the model class; Sampler draws from the posterior in it    |
+| `Forecaster`       | Compressor monitors prequential codelength → triggers re-fit on misspec     |
+| `DriftSentinel`    | Compressor's online codelength on a rolling window IS the drift statistic   |
+| `Refuter`          | Codelength gap → Bayes factor → reject/accept the "M is best" claim         |
+| `Reasoner`         | Compressor scores competing boolean encodings of a constraint               |
+| `Composer`         | Compressor ranks candidate plan structures by joint formula + outcome MDL   |
+| `PrivacyAccountant`| Codelengths can be released under DP — additive composition over streams    |
+| `AttestationLedger`| Every event in the codelength chain is canonicalised SHA-256                |
+
+### Investor framing
+
+> *"Compression *is* intelligence.  Every data stream the user routes
+> through the runtime is automatically scored against every registered
+> model class with refined-MDL codelengths.  The runtime returns the
+> shortest description plus a Bayes-factor-grade regret certificate
+> against the runner-up, in bits, with a free-of-distribution
+> per-symbol bound on what we'd lose by deploying the wrong model.
+> Solomonoff 1964 to Hutter 2005, behind one API."*
+
+See `tests/test_compressor.py` for the mathematical contract — 102
+tests, all passing: universal-code formulas, exact NML constants,
+Mononen recurrence consistency, KT-vs-NML regret bracket, balanced /
+biased / correlated / Gaussian / constant recovery, online ≡ batch
+equivalence, tamper-evident fingerprint chain.
 
 ## HTTP / SSE surface
 
