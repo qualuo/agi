@@ -67,6 +67,7 @@ agi/                # runtime + agent + reference coordinator
   bayesopt.py       # BayesOpt — Bayesian optimisation as a runtime primitive (Gaussian-process surrogate with stationary kernels — squared-exponential / Matérn-5/2 / Matérn-3/2 with per-dimension ARD lengthscales (MacKay 1994), Cholesky-solved posterior mean and variance (Rasmussen-Williams 2006), analytic input-gradients for gradient-ascent acquisition refinement; GP-UCB (Srinivas-Krause-Kakade-Seeger 2010 — anytime cumulative regret R_T ≤ √(C₁ T β_T γ_T), C₁ = 8 / log(1 + σ_f²/σ²)) / Expected Improvement (Močkus 1974; Jones-Schonlau-Welch 1998 — closed-form EI(x) = (μ−f*)Φ(z) + σφ(z) with Bull 2011 ``O(n^{-ν/d} log^α n)`` simple-regret on Matérn) / Probability of Improvement (Kushner 1964) / Thompson sampling on the GP posterior via Halton candidate set (Kandasamy et al. 2018 — Õ(√(T γ_T β_T)) frequentist regret) / Knowledge Gradient (Frazier-Powell-Dayanik 2009 — quasi-Monte-Carlo one-step-lookahead on the posterior maximiser); batch / parallel suggestions via constant-liar fantasy (Ginsbourger-Le Riche-Carraro 2010); mixed continuous + categorical domains via encoding-based GP; golden-section log-marginal-likelihood lengthscale learning every K observations (Rasmussen-Williams §5.4); anytime instantaneous regret upper bound 2 √β_t · max_x σ_{t-1}(x); information-gain accumulator γ̂_t = ½ Σ log(1 + σ²_t/σ_n²); tamper-evident SHA-256 fingerprint over (config, observation history) on every BayesOptReport; replay-deterministic given config.seed; pure stdlib — inline Cholesky / triangular solve / Beasley-Springer-Moro inverse-Φ / Halton 1960 low-discrepancy quasi-random); the *pick-the-next-expensive-query-and-prove-its-regret* primitive — the continuous-arm dual of Bandit (which is K-armed cumulative regret) and Arbiter (which is finite-arm PAC best-arm); composes with Bandit (warm-start GP with a categorical Bandit's posterior means; bandit-of-acquisitions meta-loop), Arbiter (PAC certification on the BayesOpt incumbent), Sampler (full-posterior Thompson via MCMC over GP hyperparameters), ExperimentDesigner (BayesOpt as the inner loop of any cost-aware design), Refuter (refute that the posterior covers the truth via held-out coverage), Forecaster (treat μ_n(x) ± σ_n(x) as a calibrated forecast; PIT applies), Auditor (BH on per-candidate improvement e-values), PrivacyAccountant (DP-BayesOpt via noisy y_t with widened regret bound), AttestationLedger (replay-verifiable suggest→observe receipts), Strategist (BayesOpt as the strategy when STRAT_EXPLOIT_CONTINUOUS), Coordinator (one expensive black-box per PlanStep)
   reasoner.py       # Reasoner — symbolic logical reasoning as a runtime primitive (DPLL (Davis-Putnam-Logemann-Loveland 1962) with unit propagation + pure-literal elimination / CDCL (Marques-Silva-Sakallah 1996 GRASP, Moskewicz et al. 2001 Chaff, Eén-Sörensson 2003 MiniSat) with two-watched literals (Zhang-Stickel 1996), VSIDS branching (Moskewicz et al. 2001), 1-UIP clause learning (Zhang-Madigan-Moskewicz-Malik 2001), and Luby restarts (Luby-Sinclair-Zuckerman 1993) / Walk-SAT (Selman-Kautz-Cohen 1994) with Schöning 1999 noise / resolution refutation (Robinson 1965) reconstructing an UNSAT proof chain ending in the empty clause / semi-naïve Datalog forward chaining (Bancilhon-Maier-Sagiv-Ullman 1986; Ullman 1989) with Robinson 1965 unification on uppercase-Prolog-convention Datalog variables / SLD-resolution backward chaining (Kowalski 1974) with full backtracking + subsumption tabling (Tamaki-Sato 1986) so left-recursive Horn rules terminate / Answer Set Programming stable-model semantics (Gelfond-Lifschitz 1988) via guess-and-check on NaF atoms with reduct evaluation and stratified-negation fast path (Apt-Blair-Walker 1988) + automatic Herbrand-universe grounding for rules with Datalog variables); Clopper-Pearson 1934 anytime-valid finite-sample upper bound on randomised-solver failure rate (closed form 1−α^{1/n} at k=0, regularised incomplete beta inversion via stdlib continued fraction otherwise); Hoeffding 1963 / Maurer-Pontil 2009 empirical-Bernstein half-widths for model-count importance sampling; Tarjan 1972 iterative SCC on the rule dependency graph for negation-stratification detection; tamper-evident SHA-256 fingerprint chaining every clause, fact, rule, and decision (replay-deterministic given seed); pure stdlib — no Z3, no SMT-LIB, no PEG parser; the *give-me-a-proof-or-give-me-a-counterexample* primitive — the **deterministic-logic** dual of Refuter (which falsifies probabilistic claims with PAC bounds) and the **discrete-logic** complement of Synthesizer (which fills in programs from examples) — composes with Refuter (Reasoner certifies what Refuter cannot refute after a CS-large budget), Synthesizer (Reasoner as the CEGIS verifier; Solar-Lezama 2008 — encode correctness predicate, Reasoner finds counter-example or certifies UNSAT), Negotiator / MechanismDesigner / PortfolioOptimizer (feasibility oracle for hard constraints — integrality, conflicting-resources, capacity), Equilibrator / Diplomat (Boolean side-conditions on equilibria solved before LP / CFR), CausalDiscoverer (Horn-program encoding of v-structure orientation rules), Auditor (BH/FDR control of the false-proof rate across simultaneous reasoning tasks), Cartographer (prereq-DAG forward chain → ready/1 for next-task pick), AttestationLedger (proof tree from backward_chain + resolution proof from UNSAT close hash directly into the ledger), PrivacyAccountant (odometer advance on each add_fact when facts came from sensitive data), Strategist (entailment query "does policy A satisfy invariant I in every model of these rules" before the risk-adjusted score is quoted)
   compressor.py     # Compressor — Minimum Description Length hypothesis selection as a runtime primitive (refined-MDL Normalized Maximum Likelihood (Shtarkov 1987; Rissanen 1996) with exact Shtarkov-sum log C_n for Bernoulli (closed form), Multinomial-of-k (Mononen-Myllymäki 2008 O(k) recurrence), Geometric / Poisson / Gaussian-known-σ / Gaussian-unknown-σ / Histogram / Markov-of-order-r — luckiness-NML with coordinator-supplied bounded parameter ranges for non-compact parameter spaces (Grünwald 2007 Ch. 7); universal codes for the positive integers — Elias-γ / Elias-δ (Elias 1975) and Rissanen 1983 log* with universal constant c₀ = 2.865064; classical two-part Rissanen 1978 MDL with the (k/2) log n optimal-precision parameter code as a sanity-check against NML; prequential / sequential Dawid 1984 plug-in codes — Krichevsky-Trofimov 1981 (½, ½)-Dirichlet for binary and multinomial sequences (minimax regret matches NML to O(1)), Laplace 1814 rule (Dirichlet 1) as a textbook baseline, normal-inverse-gamma Bayesian Student-t mixture for the Gaussian families; Schwarz 1978 BIC and Akaike 1974 AIC for cross-method consistency checks; Vovk 1990 strong-aggregating-algorithm per-symbol regret bound on the runner-up (free-of-distribution); pairwise Bayes-factor comparison plus Stone 1974 / Geisser 1975 leave-one-out cross-check; anytime-valid online observation — every per-symbol call returns the prequential codelength increment, accumulates into a running total that matches the batch KT bit-exactly, and stays valid at every stopping time; tamper-evident SHA-256 fingerprint chain (genesis ``compressor.v1.genesis``) hashing every register / fit / score / select / observe / compare / report event so an auditor can replay the model-selection trace byte-for-byte; thread-safe re-entrant lock; pure stdlib — math.lgamma / math.log / math.exp / hashlib; the *which-model-class-itself-is-best-supported-by-the-data* primitive — the **meta-decision** that no other primitive in the runtime supplies: Solomonoff 1964's compression-equals-induction thesis, Rissanen 1978's MDL, Hutter 2005's universal AGI, behind one API — composes with Sampler (Compressor picks the model class, Sampler simulates the posterior in it), Forecaster (Compressor monitors prequential codelength → triggers re-fit on misspec), DriftSentinel (Compressor's rolling-window codelength IS the drift statistic), Refuter (codelength gap → Bayes factor → reject/accept "model M is best"), Reasoner (Compressor scores competing boolean encodings of a structured constraint), Composer (Compressor ranks candidate plan structures by joint MDL of formula + outcomes), PrivacyAccountant (codelength releases under DP, additive composition over streams), AttestationLedger (every codelength event canonicalised SHA-256), Strategist (which model class to pivot to → MDL-best registered candidate)
+  quantilizer.py    # Quantilizer — safety-bounded optimisation as a runtime primitive (hard exact discrete q-quantilizer (Taylor 2016 *Quantilizers: A Safer Alternative to Maximizers for Limited Optimization*), top-K quantilizer with deterministic SHA-256 tie-break, soft Boltzmann / Gibbs quantilizer with KL budget solved by bisection so KL(π_β ‖ b) = B exactly, sample-based empirical quantilizer with Massart-DKW 1990 finite-sample band on the (1-q)-quantile, Hoeffding 1963 / Maurer-Pontil 2009 empirical-Bernstein / Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid LCB / UCB on the expected utility under the quantilizer, Taylor 2016 hidden-cost amplification UCB (E_q[c] ≤ E_b[c] / q), exact KL bound log(1/q), TV bound 1 − q, Pinsker / Bretagnolle-Huber 1979 / Le Cam derived divergence bounds, deterministic JSON-canonical SHA-256 fingerprint chain (genesis ``quantilizer.v1.genesis``) so every selection / quantilization / observation hashes into a replay-verifiable receipt for AttestationLedger, thread-safe re-entrant lock, pure stdlib — Beasley-Springer-Moro 1995 inverse-Φ, math.log / math.exp / hashlib); the *give-me-a-Goodhart-resistant-optimiser-and-prove-the-KL-bound-on-the-policy-deviation* primitive — the **safety** companion to Bandit / BayesOpt / Arbiter (cumulative-regret + PAC best-arm) and PolicyImprover (CRM-optimised policy) that bounds how far an optimiser may drift from a safe base under reward misspecification (Manheim-Garrabrant 2018 Goodhart variants); composes with Bandit (wrap select_arm in Quantilizer.select for safe exploration with KL-budget log(1/q) above the bandit's own policy; cost amplification 1/q sets the worst-case regret/safety trade-off), BayesOpt (q-quantilize EI selections to bound KL from a safe-prior Gaussian-process acquisition policy), Arbiter (the safety wrapper that converts an asymptotic best-arm-identification answer into a KL-bounded one), PolicyImprover (KL-bounded safe-improvement step: soft_quantilize(deployed_policy, CRM_score, kl_budget) lands exactly on the budgeted frontier — log(1/q) becomes the safety constant in the HCPI Bernstein-LCB gate), Persuader (q-quantilize over signal schemes bounds information design's KL from a truthful disclosure baseline), Strategist (risk-adjusted, KL-bounded meta-decision over recommendations), Refuter (adversarial search becomes a quantilizer when the falsification budget needs cost-amplification bound), Sampler (consume MCMC draws into quantilize_samples; Sampler's PSRF/ESS diagnostics gate the chain), Forecaster (PIT-calibrated quantilizer over calibrated predictions; Brier loss + cost amplification = decision-theoretic risk), DriftSentinel (a sudden change in the realised (1-q)-quantile threshold IS a drift signal on the base distribution), AttestationLedger (every Selection chain-hashes including the cryptographic commit to the base distribution, proxy utility, q, and seed), PrivacyAccountant (quantilization is post-processing of b — DP guarantee on b transfers verbatim to the quantilizer with no additional ε spent), Coordinator (every Goal whose execution chooses among candidate plans / prompts / models / tools is safety-budgeted by routing the candidate distribution through Quantilizer before action)
   composer.py       # Composer — typed, certified compositional planning as a runtime primitive (classical STRIPS / ADL with conjunctive preconditions and add/delete-list effects (Fikes-Nilsson 1971; Pednault 1989) over a typed registry of operators; A* (Hart-Nilsson-Raphael 1968) with consistent admissible heuristics — h_zero (Dijkstra), h_goal_count, and h_landmark (HSP-style cheapest-add-list achiever, Helmert-Domshlak 2009) — over a state-space graph whose g-function is operator cost plus negative-log mean reliability; IDA* (Korf 1985) iterative-deepening for memory-bounded deep search; STRIPS goal regression (Fikes-Nilsson 1971; Bonet-Geffner 2001) for dense-operator / small-goal regimes; Tarjan 1972 SCC + Kahn 1962 topological sort on the predicate-flow graph to diagnose cyclic operator registrations; monomorphic Hindley-Milner unification (Robinson 1965; Milner 1978) on parameter and dataflow types with first-order substitution and the standard occurs-check; per-operator Beta-Bernoulli reliability posterior (Bayes 1763 / Laplace 1814) updated by ``observe()`` with a configurable prior (mean × strength or raw α/β); end-to-end PAC certificate composing per-step Clopper-Pearson 1934 lower bounds (closed form α^{1/n} at k=n, regularised incomplete beta inversion via stdlib continued fraction otherwise), Garivier-Cappé 2011 KL-inverse upper / lower confidence bounds, Maurer-Pontil 2009 empirical-Bernstein, and Hoeffding 1963 — Bonferroni-corrected across plan length — under both INDEPENDENT (product) and WORST_CASE (union-bound) regimes; Catoni 2007 PAC-Bayes lower bound on the average reliability of a posterior over operator choices; tamper-evident SHA-256 fingerprint chain (genesis ``composer.v1.genesis``) hashing every register / axiom / plan / verify / observe / execute event so an auditor can replay the planning trace byte-for-byte; pure stdlib — heapq priority queue, recursive descent type parser, JSON-canonical event payloads; the *plan-and-prove-the-bound-on-the-plan* primitive — the **planning** companion to Reasoner (deterministic SAT/Horn/ASP), Synthesizer (PBE program search), and Refuter (PAC falsification) — composes with Reasoner (register Reasoner.solve as a feasibility-gate operator), Refuter (register Refuter.refute as a PAC-gate operator before any downstream consumer), Bandit / BayesOpt / Arbiter (decision-theoretic operators whose own per-pull outcomes feed Composer.observe), Synthesizer (Composer plans over Synthesizer's DSL operators; Synthesizer fills in any unknown leaf), PrivacyAccountant (advanced composition over per-operator ε contributions reported alongside the reliability bound), AttestationLedger (every certificate and observation hash chains into the ledger), Coordinator (the natural target — every Goal compiles to a Plan, every PlanStep is a primitive call), Cartographer (curriculum step → ``operator`` registration so Cartographer's ready/1 predicate gates plan emission)
   scheduler.py      # ParallelScheduler — DAG-aware parallel plan execution
   skillmine.py      # mine reusable skills from successful trace patterns
@@ -2665,6 +2666,135 @@ tests, all passing: universal-code formulas, exact NML constants,
 Mononen recurrence consistency, KT-vs-NML regret bracket, balanced /
 biased / correlated / Gaussian / constant recovery, online ≡ batch
 equivalence, tamper-evident fingerprint chain.
+
+## Quantilizer — safety-bounded optimisation as a runtime primitive
+
+Every other decision primitive in this runtime — Bandit, BayesOpt,
+Arbiter, PolicyImprover, Persuader, Strategist — answers the question
+"*what is the best action?*".  Each is excellent when the proxy
+utility being optimised *is* the true utility.  None of them defend
+against the case it is **wrong** — the classical Goodhart pathology
+(Manheim-Garrabrant 2018 *Categorizing Variants of Goodhart's Law*)
+in which optimising a proxy past the threshold at which it correlates
+with the truth amplifies hidden costs without bound.
+
+`Quantilizer` (Taylor 2016 *Quantilizers: A Safer Alternative to
+Maximizers for Limited Optimization*, AAAI-16 AI Ethics workshop)
+fills that gap.
+
+Given a base distribution `b` over actions and a proxy utility `U`,
+the `q`-quantilizer is the distribution that samples uniformly from
+the top-`q`-quantile of `b` ranked by `U`.  When `q = 1` it is the
+base distribution.  When `q → 0` it is argmax `U` — the
+Goodhart-vulnerable optimiser.  In between it interpolates along a
+precisely characterised safety / performance frontier with three
+distribution-free certificates the coordinator can take to the
+auditor:
+
+  * **KL bound** (Taylor 2016, Theorem 1):
+    `KL( q-quant ‖ b ) ≤ log(1 / q)`.  Tight in the worst case.
+
+  * **Cost-amplification bound** (Taylor 2016, Theorem 2): if a
+    hidden cost `c` satisfies `E_b[c] ≤ C`, then
+    `E_{q-quant}[c] ≤ C / q`.
+
+  * **Total variation bound**: `TV( q-quant ‖ b ) ≤ 1 − q`.
+
+### Algorithms shipped
+
+  * **Hard discrete quantilizer** (Taylor 2016) — exact, deterministic
+    SHA-256 tie-break on actions, returns the realised KL (≤ the
+    `log(1/q)` worst case).
+
+  * **Top-K quantilizer** — the discrete-action specialisation,
+    KL bound `log(1 / W_K)` for kept base mass `W_K`.
+
+  * **Soft / Boltzmann quantilizer** — KL-budget-constrained Gibbs
+    distribution `π_β(a) ∝ b(a) exp(β U(a))` with `β` solved by
+    bisection so the KL of `π_β` from `b` lands *exactly* on a
+    coordinator-supplied budget.  The continuous-temperature dual of
+    the hard quantilizer; composes with any utility (clipped or
+    unbounded) and any sampler-only base distribution.
+
+  * **Sample-based quantilizer** — empirical analogue with a
+    Massart-DKW 1990 finite-sample band on the `(1-q)`-quantile of
+    `U` under `b`, distribution-free.
+
+### Anytime-valid certificates
+
+Every `Selection` carries the KL/TV/cost bounds, the realised KL,
+the chosen-action probabilities under both base and quantilizer, the
+realised quantile threshold, and a SHA-256 hash that chains into
+`AttestationLedger`.  The `Quantilizer` class additionally provides:
+
+  * **Hoeffding 1963** distribution-free LCB / UCB on expected
+    utility under the quantilizer.
+
+  * **Maurer-Pontil 2009** empirical-Bernstein LCB / UCB (sharper
+    when observed variance is low).
+
+  * **Howard-Ramdas-McAuliffe-Sekhon 2021** anytime-valid LCB / UCB
+    — the bound holds *simultaneously for every n ≥ 1*, so a
+    coordinator may stop adaptively without invalidating the
+    certificate.
+
+  * **Massart 1990 DKW** band on the empirical `(1-q)`-quantile of
+    `U` under `b` from accumulated base-source observations.
+
+  * **Taylor-2016 cost UCB**: given a base-distribution cost UCB,
+    return the quantilizer's cost UCB scaled by `1 / q`.
+
+  * **Divergence conversions** — Pinsker 1964, Bretagnolle-Huber
+    1979, Le Cam — for the half-dozen distance-from-base certificates
+    a coordinator might ask for in one call.
+
+### Composition with the rest of the runtime
+
+  * **Bandit / BayesOpt / Arbiter** — wrap the inner-loop selection
+    in `Quantilizer.select(base=algorithm_distribution,
+    utility=estimated_reward, q=q)` to bound KL from a safe baseline.
+    This is the *exploration safety budget* that makes any bandit run
+    Goodhart-robust at the cost of `1/q` regret amplification.
+
+  * **PolicyImprover** — `soft_quantilize(deployed_policy, score,
+    kl_budget=B)` is the KL-bounded safe-improvement step that lands
+    exactly on the budgeted frontier — `log(1/q)` becomes the safety
+    constant in the HCPI Bernstein-LCB gate.
+
+  * **Persuader** — `q`-quantilize over signal schemes bounds the
+    information design's deviation from a truthful disclosure
+    baseline.
+
+  * **Strategist** — quantilize over recommendations for a
+    risk-adjusted, KL-bounded meta-decision.
+
+  * **PrivacyAccountant** — quantilization is *post-processing* of
+    the base distribution; the DP guarantee on `b` transfers verbatim
+    to the quantilizer with no additional ε spent.
+
+  * **AttestationLedger** — every `Selection` chain-hashes the
+    cryptographic commit to the base, the proxy, `q`, the seed, and
+    the chosen action.
+
+### Investor framing
+
+> *"Goodhart's law has a closed-form defence.  Hand the runtime any
+> base distribution and any proxy utility, and `Quantilizer` returns
+> a chosen action with **three distribution-free bounds** the
+> compliance officer can sign: the KL of the chosen policy from the
+> safe base is at most `log(1/q)` nats; the total variation is at
+> most `1 − q`; any hidden cost the proxy didn't model is amplified
+> by at most `1/q` over its base-policy average.  Taylor 2016 to
+> Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid LCB, behind one
+> API — the safety dial every autonomous AGI runtime needs."*
+
+See `tests/test_quantilizer.py` for the mathematical contract — 113
+tests, all passing: KL bound tightness on extreme atoms, soft-
+quantilizer bisection lands on the budget, Massart-DKW quantile band
+covers the empirical quantile, Hoeffding / Bernstein / anytime LCB
+shrinkage with sample size, end-to-end Goodhart scenario showing
+quantilizer recovers the true utility on the same proxy that
+argmax-trapped.
 
 ## HTTP / SSE surface
 
