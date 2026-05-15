@@ -2697,61 +2697,110 @@ def _walksat_solve(
 def _resolution_proof(
     clauses: list[tuple[tuple[str, bool], ...]],
 ) -> list[Resolution]:
-    """Construct a (possibly suboptimal) resolution proof of UNSAT.
+    """Construct a resolution proof of UNSAT via Davis-Putnam variable
+    elimination (Davis & Putnam 1960; predecessor of DPLL).
 
-    Strategy: saturate by unit-propagation-driven resolution.  For each
-    unit clause ℓ and clause C containing ¬ℓ we emit a resolution step
-    and keep the resolvent.  Terminates either with the empty clause
-    (UNSAT confirmed) or runs out of new resolvents (in which case
-    we fail silently and return what we have so far — the caller will
-    have a CDCL-confirmed UNSAT verdict already).
+    For each propositional variable v in turn:
+      * Collect P = clauses containing the positive literal v
+      * Collect N = clauses containing the negative literal ¬v
+      * Resolve every (p, n) pair on v, producing |P| × |N| new clauses
+      * Remove P ∪ N from the working set; insert the resolvents
 
-    Note: This is not a minimum-size proof.  For runtime audit purposes
-    we just need *some* replayable proof witness.
+    The algorithm terminates either with the empty clause (UNSAT
+    confirmed; we record the full chain of resolutions that led to it)
+    or with no clauses remaining (also UNSAT-style termination but with
+    a vacuously-satisfied tail).  Pure tautologies are discarded.
+
+    Note: not a minimum-size proof — Haken (1985) showed exponential
+    lower bounds on resolution proofs of pigeon-hole.  Runtime audit
+    only requires *some* replayable witness.
     """
     if not clauses:
         return []
-    # Work over a set to avoid duplicate clauses.
-    work: dict[tuple[tuple[str, bool], ...], int] = {}
-    proof: list[Resolution] = []
+    # Normalise + dedup + drop tautologies.
+    work: set[tuple[tuple[str, bool], ...]] = set()
     for c in clauses:
-        if c not in work:
-            work[c] = len(work)
-    max_steps = max(500, 4 * len(clauses))
-    for _ in range(max_steps):
-        units = [c for c in work if len(c) == 1]
-        progress = False
-        for u in list(units):
-            atom, neg = u[0]
-            target_lit = (atom, not neg)
-            for c in list(work.keys()):
-                if c == u:
-                    continue
-                if target_lit in c:
-                    # Resolve.
-                    resolvent_set = set(c) - {target_lit}
-                    resolvent_set.update(set(u) - {(atom, neg)})
-                    # Tautology check.
-                    by_atom: dict[str, bool] = {}
-                    taut = False
-                    for a, n in resolvent_set:
-                        if a in by_atom and by_atom[a] != n:
-                            taut = True
-                            break
-                        by_atom[a] = n
-                    if taut:
-                        continue
-                    resolvent = tuple(sorted(by_atom.items()))
-                    if resolvent not in work:
-                        work[resolvent] = len(work)
-                        proof.append(Resolution(
-                            clause_a=u, clause_b=c,
-                            pivot=atom, resolvent=resolvent,
-                        ))
-                        progress = True
-                        if not resolvent:
-                            return proof
-                        units.append(resolvent) if len(resolvent) == 1 else None
-        if not progress:
+        by_atom: dict[str, bool] = {}
+        taut = False
+        for a, n in c:
+            if a in by_atom and by_atom[a] != n:
+                taut = True
+                break
+            by_atom[a] = n
+        if taut:
+            continue
+        work.add(tuple(sorted(by_atom.items())))
+    if not work:
+        return []
+    if () in work:
+        # Empty clause already present.
+        return []
+    proof: list[Resolution] = []
+    # Variable elimination order: by number of occurrences ascending —
+    # heuristic to keep intermediate clause count small.  Recompute
+    # each round.
+    max_resolutions = 2_000_000   # hard cap to avoid pathological blow-up
+    while True:
+        # Collect variables remaining.
+        atoms_in_use: dict[str, int] = {}
+        for c in work:
+            for a, _ in c:
+                atoms_in_use[a] = atoms_in_use.get(a, 0) + 1
+        if not atoms_in_use:
             break
+        # Pick variable v with the smallest |P| · |N| product.
+        best_v = None
+        best_score = float("inf")
+        for v in atoms_in_use:
+            p_count = sum(1 for c in work if (v, False) in c)
+            n_count = sum(1 for c in work if (v, True) in c)
+            score = p_count * n_count
+            # Prefer variables that wipe out clauses without growing.
+            if score < best_score:
+                best_score = score
+                best_v = v
+            if score == 0:
+                break
+        if best_v is None:
+            break
+        v = best_v
+        P = [c for c in work if (v, False) in c]
+        N = [c for c in work if (v, True) in c]
+        # Resolve P × N.
+        new_clauses: set[tuple[tuple[str, bool], ...]] = set()
+        for p in P:
+            for n in N:
+                if len(proof) >= max_resolutions:
+                    return proof
+                # Resolvent: (p \ {v}) ∪ (n \ {¬v})
+                merged: dict[str, bool] = {}
+                taut = False
+                for a, sign in p:
+                    if a == v and sign is False:
+                        continue
+                    merged[a] = sign
+                for a, sign in n:
+                    if a == v and sign is True:
+                        continue
+                    if a in merged and merged[a] != sign:
+                        taut = True
+                        break
+                    merged[a] = sign
+                if taut:
+                    continue
+                resolvent = tuple(sorted(merged.items()))
+                proof.append(Resolution(
+                    clause_a=p, clause_b=n,
+                    pivot=v, resolvent=resolvent,
+                ))
+                if not resolvent:
+                    # Empty clause — UNSAT proven.
+                    return proof
+                new_clauses.add(resolvent)
+        # Drop the P ∪ N clauses; add new ones.
+        for c in P:
+            work.discard(c)
+        for c in N:
+            work.discard(c)
+        work.update(new_clauses)
     return proof

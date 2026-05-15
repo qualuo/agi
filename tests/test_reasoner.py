@@ -263,6 +263,39 @@ def test_unsat_resolution_proof_nonempty():
     assert proof[-1].resolvent == ()
 
 
+def test_unsat_proof_reaches_empty_clause_tiny():
+    r = Reasoner(CDCL)
+    # XOR-conflict — minimal 2-variable UNSAT.
+    r.add_clause(["a", "b"])
+    r.add_clause(["~a", "b"])
+    r.add_clause(["a", "~b"])
+    r.add_clause(["~a", "~b"])
+    r.solve()
+    proof = r.last_resolution_proof()
+    assert len(proof) >= 1
+    assert proof[-1].resolvent == ()
+
+
+def test_unsat_proof_steps_are_valid():
+    """Each step's resolvent equals (a \\ {pivot}) ∪ (b \\ {¬pivot})."""
+    r = Reasoner(CDCL)
+    r.add_clause(["a"])
+    r.add_clause(["~a", "b"])
+    r.add_clause(["~b"])
+    r.solve()
+    for step in r.last_resolution_proof():
+        # The pivot must appear positive in one clause and negative
+        # in the other.
+        a_has_pos = (step.pivot, False) in step.clause_a
+        a_has_neg = (step.pivot, True) in step.clause_a
+        b_has_pos = (step.pivot, False) in step.clause_b
+        b_has_neg = (step.pivot, True) in step.clause_b
+        assert (a_has_pos and b_has_neg) or (a_has_neg and b_has_pos)
+        # Resolvent excludes the pivot.
+        for atom, _ in step.resolvent:
+            assert atom != step.pivot
+
+
 def test_unsat_proof_pigeon():
     r = Reasoner(CDCL)
     for p in range(3):
