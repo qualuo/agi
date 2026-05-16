@@ -3482,6 +3482,130 @@ model file, with a JL certificate the operator can show to a regulator.
     should plug an external store (pgvector, qdrant, etc.) in front
     of the same ``EmbeddingProvider``.
 
+## Scientist — sparse symbolic law discovery as a runtime primitive
+
+Every other learning primitive in this stack fits a model whose *form*
+is fixed before fitting begins.  `Forecaster` fits a parametric mean
+process.  `Predictor` mixes a fixed class of variable-order Markov
+models.  `Filterer` runs Bayesian state estimation against a *known*
+linear-Gaussian dynamics.  None of them returns an interpretable,
+closed-form *law* — a finite arithmetic expression an investor, a
+domain expert or a downstream verifier could read on a slide.
+
+`agi.scientist.Scientist` closes that gap.  Given a stream of
+`(x ∈ ℝᵈ, y ∈ ℝ)` pairs it discovers a sparse linear combination of
+*symbolic basis functions* — monomials, sines/cosines, exponentials,
+logarithms, plus any user-supplied callable — that explains `y` as a
+function of `x`, and returns a `Law` object carrying
+
+* a printable closed-form expression (`"y ≈ -4.905·x0² + 3.00·x0 + 100.00"`);
+* per-coefficient bootstrap 95% confidence intervals (Efron 1979);
+* per-term stability-selection inclusion frequencies (Meinshausen-Bühlmann 2010);
+* AIC (Akaike 1973), BIC (Schwarz 1978), and MDL (Rissanen 1978) ranking;
+* in-sample R², out-of-sample R² on a held-out set, and Akaike-corrected
+  small-sample AICc;
+* the full **Pareto frontier** of (complexity, residual) so the coordinator
+  can route on the bias / sparsity tradeoff explicitly;
+* a SHA-256 fingerprint chain over every `observe` / `fit` / `report` call,
+  compatible with `AttestationLedger`.
+
+```python
+from agi import Scientist, SCIENTIST_SELECT_AIC
+
+sci = Scientist.create(input_dim=1, max_degree=3, seed=0)
+for t, y in falling_body_data:           # noisy (time, altitude) pairs
+    sci.observe([t], y)
+law = sci.fit(criterion=SCIENTIST_SELECT_AIC)
+print(law)
+# y ≈ 99.9437 + 3.04983·x0 − 4.91241·x0^2          ← gravity recovered
+
+# Pareto front: complexity vs. residual
+for p in sci.pareto():
+    print(p.k, p.lam, p.rss, p.law)
+
+# 95% bootstrap CIs and stability selection
+boot = sci.bootstrap(law=law, n_resamples=200)
+stab = sci.stability_selection(n_resamples=100, pi_thr=0.6)
+
+# Out-of-sample R² on held-out data
+sci.evaluate_r2(test_xs, test_ys, law=law)
+```
+
+### Algorithms
+
+* **STLSQ — Sequential Thresholded Least Squares.**  Brunton-Proctor-Kutz
+  2016 *Discovering governing equations from data by sparse identification
+  of nonlinear dynamical systems*.  Alternate least-squares with hard
+  thresholding `|ξ_j| < λ`; the fixed point is the ℓ⁰-constrained
+  projection of OLS onto the basis subset that survives the threshold.
+  `Scientist` sweeps a grid of `λ` and exposes the full Pareto front.
+* **AIC.**  Akaike 1973 *Information theory and an extension of the
+  maximum likelihood principle*.  `AIC = n·log(RSS/n) + 2k`.
+* **BIC.**  Schwarz 1978 *Estimating the dimension of a model*.
+  `BIC = n·log(RSS/n) + k·log(n)`; consistent for the sparse support
+  as `n → ∞`.
+* **MDL.**  Rissanen 1978 *Modeling by shortest data description*.
+  Two-part code length in bits-per-sample, length-independent so it
+  composes with `Compressor` on the universal-codelength side.
+* **Bootstrap CI.**  Efron 1979 *Bootstrap methods: another look at
+  the jackknife*.  Empirical percentile interval at the selected
+  support.
+* **Stability selection.**  Meinshausen-Bühlmann 2010 *Stability
+  selection*.  Resample, refit, count inclusion frequency; controls
+  per-family error under mild exchangeability.
+* **Pareto knee.**  Satopää-Albrecht-Irwin-Raghavan 2011 *Finding a
+  Kneedle in a Haystack: Detecting Knee Points in System Behavior*.
+  Maximum-distance-from-chord elbow rule on the (complexity, log RSS)
+  curve.
+
+### How it composes with the rest of the runtime
+
+| Question                                                                | Composition                                                                               |
+|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| Did the discovered law generalise?                                       | `ConformalPredictor` wraps `Scientist.predict` for finite-sample prediction intervals.    |
+| Is the law a *false discovery*?                                          | `Refuter` runs metamorphic / boundary attacks against `Law.predict`.                       |
+| What's the chance another law fits as well?                              | `sci.akaike_weights()` returns posterior weights over the Pareto frontier.                 |
+| Is the law numerically stable under data perturbation?                   | `sci.stability_selection()` — Meinshausen-Bühlmann inclusion frequencies.                 |
+| Encode the law as a tool the agent can call.                             | `Synthesizer` lifts `Law.predict` into a typed `Tool`.                                     |
+| Combine the law with a CTW universal predictor.                          | `Compressor` benchmarks Law's MDL bits/sample against `Predictor` codelength.              |
+| Plug the discovered dynamics into a state filter.                        | `Filterer` consumes `Law.predict` as a non-linear `f`; particle filter resolves the noise. |
+| Cross-validate the law on N held-out folds, parallel.                    | `Pool` shards `evaluate_r2` calls across runtimes; `Capabilities` routes folds by latency.|
+| Persist the discovered Law in a knowledge graph.                         | `KnowledgeGraph.add_fact(law_id, "explains", target, weight=law.r2)`.                      |
+| Refuse to act on a law whose CI crosses zero on the leading coefficient. | `Quantilizer.act` gates on `boot.contains_zero(name) is False`.                            |
+| Replay a Law's full derivation byte-for-byte.                            | `AttestationLedger` consumes the fingerprint chain that hashes every `observe` / `fit`.   |
+
+### Investor framing
+
+A coordination engine that can call `Scientist.fit(observation_stream)`
+closes a loop none of the other primitives close: from *observations*
+to *interpretable mechanism*.  `Forecaster` predicts the next number;
+`Filterer` tracks a latent state; `CausalDiscoverer` finds an arrow.
+Only `Scientist` returns the **formula**.  That formula is then:
+
+* an audit artefact a regulator can read;
+* a hypothesis `Refuter` can try to break;
+* a closed-form prior `Filterer` can plug into its dynamics;
+* a typed program `Synthesizer` can lift into a tool;
+* a step in a `KnowledgeGraph` fact whose edges carry numerical
+  coefficients.
+
+When the slide says "the AI discovered the law for falling bodies from
+80 noisy observations in 200 milliseconds, with a 95 % bootstrap CI
+that excludes zero on every term and an MDL certificate bounding the
+description length to 0.1 bits per sample" — `Scientist` is the
+primitive doing the work.
+
+### What it deliberately doesn't claim
+
+  * A general symbolic regressor.  The search is *linear-in-basis*:
+    coefficients are real-valued, the structure of the law is a
+    selection from a fixed library.  Genetic-programming-style
+    expression-tree search (PySR, Eureqa) is more general but more
+    expensive and lacks the closed-form guarantees STLSQ + AIC carry.
+  * A causal discovery primitive.  A discovered law fits observational
+    data; whether it is a *causal* law is what `CausalDiscoverer` and
+    `Refuter` are for.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
