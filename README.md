@@ -4837,6 +4837,102 @@ A coordinator's investor dashboard is upstream of the field: the
     tamper-evident garbage student out.  Compose with `Verifier`
     on the upstream targets.
 
+## Mentalist — Bayesian theory-of-mind as a runtime primitive
+
+The multi-agent primitives in this runtime — `Negotiator`, `Coalition`,
+`Mechanism`, `Persuader`, `Diplomat`, `Equilibrator` — all assume the
+*other* parties have beliefs, desires, and intentions that can be
+reasoned about.  None of them, by design, maintains the actual
+probabilistic *model* of those mental states.  `Mentalist` is the
+runtime primitive that does.
+
+Theory of mind (Premack & Woodruff 1978) is the operation a debugger
+performs when guessing the test author's intent, the operation a
+negotiator performs when modelling the counterparty's reservation
+price, and the operation a coordination engine must perform whenever
+another agent's behaviour deviates from the prior.  Modern AI has
+rediscovered it under three names — *inverse RL* (Ziebart-Maas-
+Bagnell-Dey 2008), *Bayesian theory of mind* (Baker-Saxe-Tenenbaum
+2009; Baker-Jara-Ettinger-Saxe-Tenenbaum 2017), and *opponent
+modelling* (Foerster et al. 2018).
+
+```python
+>>> from agi import Mentalist, MentalistConfig
+>>> m = Mentalist(MentalistConfig(rng_seed=1))
+>>> m.register_agent("alice",
+...                  states=("low", "mid", "high"),
+...                  actions=("pass", "bid"),
+...                  outcomes=("win", "lose"))
+>>> for _ in range(20):
+...     m.observe("alice", state="high", action="bid", reward=1.0, outcome="win")
+...     m.observe("alice", state="low",  action="pass", reward=0.0, outcome="lose")
+>>> m.predict("alice", state="high")
+{'pass': 0.04, 'bid': 0.96}
+>>> m.infer_desire("alice")
+{'win': 7.31, 'lose': -7.31}
+>>> bound = m.pac_bayes_bound("alice")
+>>> bound.upper_bound
+1.34  # Catoni-style PAC-Bayes upper bound on log-loss
+```
+
+What `Mentalist` ships:
+
+  * **Bayesian belief tracking** — Dirichlet posteriors over latent
+    state distributions; online conjugate updates.
+  * **MaxEnt inverse RL** (Ziebart 2010 §3.4) — closed-form gradient
+    descent on per-outcome utility weights, with full-action-space
+    policy evaluation so single-action histories still produce signal.
+  * **Bayesian rationality estimation** — Gamma posterior on the
+    Boltzmann inverse-temperature ``β``; an agent that always picks
+    the utility-maximising action drives ``β → ∞``, one that picks
+    uniformly drives ``β → 0``.
+  * **Capability posteriors** — Beta-Bernoulli on per-(state, action)
+    success rates; ``confidence()`` returns Clopper-Pearson (1934)
+    exact credible intervals.
+  * **Four prediction methods** — `map`, `softmax` (Boltzmann-rational),
+    `thompson` (sample-and-greedy with O(√T log T) regret), and
+    `bayes_avg` (posterior-weighted mixture over Thompson samples).
+  * **Simulation rollouts** — anytime forecasts of the agent's
+    expected (state, action) trajectory under the posterior-mean policy.
+  * **Nested theory of mind** — `nested_belief(observer, target, state)`
+    returns the observer's posterior over the target's next action;
+    the recursive ``ToM_k`` of Gmytrasiewicz-Doshi 2005.
+  * **PAC-Bayes prediction certificate** (Catoni 2007) — closed-form
+    upper bound on the policy's expected log-loss, with explicit
+    KL-to-prior and sample-size dependence.
+  * **Identifiability report** — equivalence classes of outcomes that
+    are *empirically indistinguishable* on the observed data; the
+    runtime knows when its IRL is underdetermined.
+  * **SHA-256 chain certificate** — every registration, observation,
+    inference and prediction is folded into a tamper-evident chain;
+    replaying the same observations against the same RNG seed
+    reproduces the certificate byte-for-byte.
+  * **Pure stdlib** — no NumPy, no Torch, no SciPy.
+
+Composition with the rest of the runtime:
+
+  * Pass `mentalist.infer_desire(id)` as the `preferences` argument
+    to `Negotiator` / `Mechanism` — the bargaining now runs against
+    the runtime's *recovered* model of the counterparty.
+  * `Persuader` consumes `mentalist.predict` distributions to score
+    persuasive messages by expected belief-shift.
+  * `Bandit` queries about a *known agent* can be routed through
+    `Mentalist.predict(..., method=THOMPSON)` for a calibrated
+    explanation along with the recommendation.
+  * `Abductor` picks the model *family*; `Mentalist` picks the model
+    *parameters* — natural staged inference.
+
+Limitations honestly stated:
+
+  * Default state/action/outcome spaces are *finite and discrete*.
+    Continuous spaces require discretisation via `Sketcher` /
+    `Topologist` before being fed in.
+  * The agent is assumed to be ε-Boltzmann-rational.  An adversary that
+    deliberately randomises against the recovered utility is identified
+    as ``β → 0`` but not exploited beyond that.
+  * Nested ToM beyond depth 2 is currently expensive (``O(|A|^k)``) and
+    requires composition with `Sampler` for posterior marginalisation.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
