@@ -3380,6 +3380,108 @@ the decision through the same audit ledger every other primitive emits.
     user still has to decide what "significant persistence" means
     for their application.
 
+## Embedder — distortion-bounded text embeddings as a runtime primitive
+
+Every learning / retrieval primitive in this runtime that "compares two
+pieces of text" was historically doing it through keyword overlap:
+``Memory.search`` matches by literal tokens, ``SkillLibrary`` reranks via
+the LLM, ``Cartographer`` clusters by a hand-supplied feature vector the
+coordinator computes itself.  Both ``PLAN.md`` (Stage 3) and
+``ARCHITECTURE.md`` (Long-term memory) call out the gap explicitly:
+
+> Pluggable embedding backend — *Memory.search() becomes semantic.*
+> (Anthropic doesn't ship embeddings.)
+
+The ``Embedder`` is the primitive that closes that gap **without an
+external embedding service, without a learned model, and with a
+finite-sample distortion certificate**.  It composes three classical,
+pure-Python, deterministic transforms:
+
+```
+text  ── HashingVectorizer (Weinberger et al. 2009) ──>  sparse ℝ^N
+      ── sparse Random Projection (Achlioptas 2003)  ──>  dense  ℝ^d
+      ── L2 normalisation                            ──>  unit-norm v
+```
+
+### Runtime API
+
+```python
+from agi import Embedder, embedder_jl_dimension, embedder_jl_certificate
+
+emb = Embedder.create(dim=128, n_gram_range=(2, 4), seed=0)
+v   = emb.embed("the quick brown fox")                # Embedding (unit-norm)
+doc = emb.add("the lazy dog", payload={"src": "doc1"})
+hits = emb.search("the brown dog", k=5)               # cosine top-K
+emb.build_lsh_index(n_bands=8, bits_per_band=8)
+fast = emb.search_lsh("the brown dog", k=5)           # sub-linear via SimHash
+cr   = emb.cluster(k=3, max_iter=50, seed=7)          # k-means++ + Lloyd
+cert = emb.jl_certificate(n_items=1000, eps=0.1)      # JL bound
+rep  = emb.report()
+```
+
+Every ``embed``, ``add``, ``search``, ``cluster`` and ``report`` is hashed
+into a SHA-256 fingerprint chain compatible with the
+``AttestationLedger`` every other primitive uses.
+
+### Mathematical roots
+
+  * **Weinberger-Dasgupta-Langford-Smola-Attenberg 2009 — Feature
+    Hashing.**  The estimator
+    `⟨φ(x), φ(y)⟩` is *unbiased* for `⟨x, y⟩` with variance bounded by
+    `(‖x‖² ‖y‖² + ⟨x, y⟩²) / N'`.  No vocabulary file, no streaming
+    counts: a hash + sign is the entire model.
+  * **Achlioptas 2003 — Database-friendly Random Projections.**
+    Replaces the Gaussian projection matrix by a sparse `±1/√d`-valued
+    matrix.  The resulting embedding still satisfies Johnson-
+    Lindenstrauss, but the projection is `2/3`-sparse and exactly
+    representable in integer arithmetic.
+  * **Johnson-Lindenstrauss 1984; Dasgupta-Gupta 2003.**
+    For any `n`-point set in any Hilbert space and `ε ∈ (0, 1/2)`,
+    embedding into `d ≥ ⌈8 ln n / ε²⌉` dimensions preserves every
+    pairwise squared distance within `(1 ± ε)` with probability at
+    least `1 − 1/n`.  Distribution-free.
+  * **Charikar 2002 — SimHash.**  For unit-norm `u, v` and a random
+    Gaussian `r`, `P[sign(⟨u, r⟩) = sign(⟨v, r⟩)] = 1 − θ(u, v) / π`.
+    Banded signatures give sub-linear nearest-neighbour retrieval.
+  * **Arthur-Vassilvitskii 2007 — k-means++.**  `D²`-weighted seeding
+    is `O(log k)`-competitive against optimal cost.  Combined with
+    Lloyd iterations on cosine distance for spherical clustering.
+
+### What a coordination engine uses it for
+
+| Question                                                              | Call                                          |
+|-----------------------------------------------------------------------|-----------------------------------------------|
+| Are these two prompts asking for the same thing?                      | `emb.embed(a).cosine_to(emb.embed(b))`        |
+| Which past skill is closest to this prompt?                           | `emb.search(prompt, k=3)` over the skill set  |
+| Find duplicate traces in the session log                              | `emb.cluster(k, seed=…)` + tight cluster size |
+| Sub-linear retrieval over 10⁴ memos                                   | `emb.search_lsh(query, k, n_bands=…, bits=…)` |
+| What dimension do I need for ε=0.1 distortion on n=10⁵ items?         | `embedder_jl_dimension(100000, 0.1)`          |
+| Has this batch of embeddings drifted from the training manifold?      | `Topologist.bottleneck_distance(...)` on emb. |
+
+### Investor framing
+
+Every other primitive in this stack already produces calibrated, audited
+artefacts: forecasts, decisions, certificates.  *Until the runtime can
+embed text it cannot apply any of those primitives to its own memory.*
+The ``Embedder`` is the connective tissue that turns the rest of the
+audit-able stack onto the runtime's own conversation history, skills,
+traces and tickets — without an external API call, without a learned
+model file, with a JL certificate the operator can show to a regulator.
+
+### What it deliberately doesn't claim
+
+  * A replacement for a learned semantic embedder (Voyage AI,
+    OpenAI, sentence-transformers, BERT).  Those embeddings capture
+    distributional semantics from large pretraining corpora; this
+    primitive captures **lexical / syntactic proximity** with a JL
+    certificate.  When a deployment wants higher-quality semantic
+    retrieval, a learned backend can be wired in behind the same
+    ``EmbeddingProvider`` protocol without changing downstream code.
+  * A vector database.  The internal index is in-memory and tuned for
+    coordination-scale corpora (up to ~10⁴ items).  Larger corpora
+    should plug an external store (pgvector, qdrant, etc.) in front
+    of the same ``EmbeddingProvider``.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
