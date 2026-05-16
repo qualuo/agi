@@ -4393,6 +4393,154 @@ practice); PRNG seeds are scrambled through SplitMix64 before
 xorshift so small consecutive seeds give strongly decorrelated streams
 (important for federated sketching with worker-id-derived seeds).
 
+## Analogist — structure-mapping analogical reasoning as a runtime primitive
+
+Every other primitive in this runtime treats reasoning **within** a
+domain.  ``Predictor`` predicts the next symbol of a single stream.
+``Scientist`` recovers a closed-form law from a single table.
+``Conjecturer`` proposes a single proposition.  ``Inducer`` searches
+for one program that fits one specification.  But the core operation a
+coordination engine performs when it lifts a lesson learned in one
+ticket into the policy that handles the **next** ticket — the
+operation a debugger performs when it recognises that the bug in
+front of it has the same shape as a bug it has seen before, the
+operation a researcher performs when she carries the structure of an
+argument from fluid dynamics into traffic flow — is **analogy**.
+
+`Analogist` is the runtime primitive that performs that operation.
+Given two relational descriptions — a **base** (well-known, richly
+structured) and a **target** (unfamiliar, possibly incomplete) — it
+returns a small set of *global mappings*, each a one-to-one,
+parallel-connected alignment between base and target objects, ranked
+by a Structural Evaluation Score that rewards **systematicity**
+(Gentner 1983): deep, interconnected relational structure beats
+isolated attributes.  Each global mapping comes with a list of
+**candidate inferences** — expressions present in the base whose
+entities have already been mapped to the target, projected as
+predictions about what *should* be true in the target if the analogy
+is sound.
+
+### Algorithms shipped
+
+  * **SME (Falkenhainer-Forbus-Gentner 1989)**: the canonical
+    structure-mapping engine.  Three stages: (1) enumerate local
+    match hypotheses under tiered identicality, (2) score them with
+    a Structural Evaluation Score that propagates *parental support*
+    down the relation tree (`SES(child) += λ · SES(parent)`),
+    (3) greedy best-first search over consistent unions of match
+    hypotheses under the one-to-one and parallel-connectivity
+    constraints.
+  * **MAC/FAC (Forbus-Gentner-Law 1995)** retrieval: a fast content-
+    vector dot-product (Many Are Called) selects a short-list from a
+    long-term memory of cases; full SME (Few Are Chosen) ranks the
+    short-list by structural similarity.  The cost profile that lets
+    the runtime keep a large case base and still answer in bounded
+    time.
+  * **ACME (Holyoak-Thagard 1989)** as an alternative engine: a
+    constraint-satisfaction network that relaxes structural,
+    semantic, and pragmatic constraints simultaneously.  Selected
+    via `analogist_acme()`.
+  * **Copycat-style proportional analogy (Hofstadter 1985;
+    Mitchell 1993)**: the small `ProportionalAnalogy` sub-primitive
+    that solves letter-string `a:b :: c:?` problems by rule
+    enumeration — the runtime's symbol-stream pattern-transfer
+    operator.
+
+The pitch reduced to a runtime call:
+
+```python
+>>> from agi.analogist import sme
+>>> analogist = sme(hmac_key=b"secret")
+>>> analogist.add_description("solar", [
+...     ("cause",
+...        ("attracts", "sun", "planet"),
+...        ("revolves_around", "planet", "sun")),
+...     ("greater", ("mass", "sun"), ("mass", "planet")),
+...     ("greater", ("temperature", "sun"), ("temperature", "planet")),
+...     ("yellow", "sun"),
+... ])
+>>> analogist.add_description("atom", [
+...     ("cause",
+...        ("attracts", "nucleus", "electron"),
+...        ("revolves_around", "electron", "nucleus")),
+...     ("greater", ("mass", "nucleus"), ("mass", "electron")),
+... ])
+>>> report = analogist.match("solar", "atom")
+>>> dict(report.mappings[0].entity_map)
+{'sun': 'nucleus', 'planet': 'electron'}
+>>> report.mappings[0].inferences
+((('greater', ('temperature', 'nucleus'), ('temperature', 'electron')),
+  ('greater', ('temperature', 'sun'), ('temperature', 'planet'))),
+ (('yellow', 'nucleus'), ('yellow', 'sun')))
+```
+
+The mapping is sound under two structural constraints — **one-to-one**
+(no base object maps to two target objects and vice versa) and
+**parallel connectivity** (matched relations have matched arguments,
+recursively) — both of which are certified by the report.  A
+coordinator that wants to admit the analogy into its policy has a
+verifier; a coordinator that wants to reject it has a counter-example.
+
+### How it composes with the rest of the runtime
+
+  * The candidate inferences are *predictions*.  Hand them to
+    `Refuter` for falsification — a coordinator that has refuted
+    "yellow(nucleus)" on the canonical solar-atom analogy has
+    demonstrated that mere-appearance transfer is unsound; the
+    surviving inference "greater(temperature, nucleus, electron)"
+    is the one to operationalise.
+  * `Conformal` can wrap any single transferred prediction in a
+    distribution-free coverage interval — turning "the analogy
+    suggests X" into "the analogy suggests X with probability ≥ 95%
+    that the true value lies in [lo, hi]".
+  * `MAC/FAC` retrieval is the long-term-memory side of the
+    coordinator's case base.  Combined with `Skills` /
+    `SelfEvalBank`, the runtime can lift a successful skill from one
+    ticket into a candidate skill for a structurally analogous one
+    — *cross-ticket learning by analogy*.
+  * The `score` decomposes by predicate kind (`higher_order`,
+    `relation`, `function`, `attribute`).  A `Strategist` that
+    weighs analogical evidence against direct evidence has the
+    per-kind contribution to threshold on.
+  * Every report carries an HMAC `certificate` over the canonical
+    mapping; the `AttestationLedger` can replay an entire match
+    byte-for-byte from the certificate alone, so a coordinator
+    publishing a transferred lesson has a tamper-evident record
+    that the analogy it acted on is the analogy it explains.
+
+### Investor framing
+
+Today's frontier LLMs are notoriously brittle on analogy benchmarks
+(Raven's Progressive Matrices, ARC, Mitchell's letter-string
+problems): they pattern-match on surface tokens but fail to align
+*relational structure*.  Lovett & Forbus 2017 showed that classical
+structure-mapping accounts for human performance on exactly the
+problems on which LLMs collapse.  `Analogist` is the runtime's
+**structural-alignment co-processor** — a deterministic, certificate-
+producing primitive a coordination engine can call whenever a
+language model needs a sound way to *transfer* a lesson across a
+domain boundary.  It is the operational rendering of Hofstadter &
+Sander's (2013) claim that analogy is not a peripheral cognitive
+trick but the *core* of cognition, made callable at the same tier
+as `Solver` and `Planner`.
+
+### What it deliberately doesn't claim
+
+  * `Analogist` does not perform *induction* over expressions — that
+    is the job of `Inducer` (Levin universal search) and `Scientist`
+    (sparse symbolic-law recovery).  Analogist transports an existing
+    structure across a domain boundary; it does not invent the
+    structure.
+  * It is not a similarity metric.  Two descriptions can score
+    arbitrarily low on cosine similarity and still admit a perfect
+    SME mapping (Markman & Gentner 1993); the runtime exposes both
+    answers separately so a coordinator can pick the right one.
+  * The candidate inferences are *hypotheses*.  They are not
+    asserted true; they are emitted into the runtime's verification
+    pipeline (`Refuter`, `Conformal`, `Verifier`) so the
+    coordination engine has an explicit checkpoint between "the
+    analogy proposes X" and "the runtime claims X".
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
