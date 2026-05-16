@@ -4161,6 +4161,112 @@ What it does *not* do (yet):
   * No string / list opcodes — the VM operates on integers only.  Add
     typed opcodes to extend the language.
 
+## Verifier — LCF-style proof certificate kernel as a runtime primitive
+
+The other primitives in this runtime each *produce* a certificate
+alongside their answer — Reasoner emits a resolution refutation, Solver
+emits a DRUP-style unsat trace, Synthesizer emits a CEGIS verification
+report, Conjecturer emits a falsifiable derivation. Re-checking those
+certificates *inside the primitive that generated them* gains no
+independence: a bug in Reasoner's proof reconstruction silently passes
+Reasoner's own verifier. The `Verifier` primitive is the runtime's
+**independent kernel** for those certificates — the **LCF discipline**
+(Milner 1972; Pollack 1998 *de Bruijn criterion*) reduced to a single
+runtime call.
+
+The trust model is the classical LCF one (HOL, Isabelle, Coq, Lean):
+
+  * a tiny **kernel** with a fixed enumeration of ~22 inference rules
+    (1 resolution + 20 natural-deduction + 1 rewrite-at-position);
+  * every certificate is a sequence of kernel calls; the verifier
+    only ever applies a kernel call, never a derived rule, never
+    "trusts" a cached lemma;
+  * the *trusted computing base* is therefore exactly the kernel —
+    ~250 lines, auditable in an afternoon — and *nothing else*.
+
+Three proof systems are shipped, each with its own re-derivation path:
+
+  * **Resolution proofs over CNF** (Robinson 1965; Goldberg-Novikov
+    2003 *RUP*; Heule-Hunt-Wetzler 2013 *DRAT*).  Every step claims
+    that two parent clauses (original or earlier resolvent) resolve
+    on a positive-variable pivot to a stated resolvent; the kernel
+    re-runs the resolution and matches structurally.  Verification
+    succeeds iff every step's resolvent matches and the final
+    resolvent is the empty clause (⊥).
+  * **Natural-deduction proofs over propositional logic**
+    (Gentzen 1935; Prawitz 1965).  Each step names one of the
+    twenty kernel rules — ``assumption``, ``premise``,
+    ``and_intro/elim_{l,r}``, ``or_intro_{l,r}``, ``or_elim``,
+    ``imp_intro/elim`` (modus ponens), ``not_intro/elim``,
+    ``bot_elim`` (ex falso quodlibet), ``iff_intro/elim_{l,r}``,
+    ``lem`` (classical excluded middle), ``dne`` (double-negation
+    elimination), ``top_intro``, ``repeat`` — and the kernel
+    re-derives the resulting sequent ``Γ ⊢ φ``.  Verification
+    succeeds iff every kernel re-derivation succeeds, the final
+    formula matches the goal, and no undischarged assumptions
+    remain outside the global premise set.  An
+    `enforce_intuitionistic=True` flag rejects ``lem`` and ``dne``
+    so a coordination engine can ask the stricter question "does
+    this hold constructively?"
+  * **Equational rewriting proofs** (Birkhoff 1935; Knuth-Bendix
+    1970; Baader-Nipkow 1998).  Axioms are pairs ``ℓ = r`` with
+    optionally declared variables; each step rewrites the current
+    term at a given position by the chosen axiom in a chosen
+    direction (forward or backward) under a given substitution.
+    The kernel matches the substituted axiom side against the
+    sub-term at the position and replaces it; verification succeeds
+    iff the final term equals the target ``rhs``.
+
+Every report carries:
+
+  * `status`: one of ``VERIFIED`` / ``FAILED`` / ``MALFORMED``;
+  * `failed_step`: 0-based index of the first failing step (None on
+    success);
+  * `failure_reason`: human-readable, includes the kernel rule's own
+    error message ("pivot variable 5 not present in clause [1, 2, 3]",
+    "imp_intro: discharged formula p not in premise context", etc.);
+  * `certificate`: HMAC-SHA256 over the canonical serialisation of every
+    kernel step in proof order — re-runnable by `AttestationLedger`
+    without re-executing the kernel;
+  * `kernel_calls`, `tcb_lines`, `elapsed_seconds`: self-describing
+    fields a coordinator can quote in an attestation ("this output is
+    backed by 22 kernel rules across 250 lines of trusted code, verified
+    in 1.4 ms over 47 kernel calls").
+
+Composition is intentional: Reasoner's `last_resolution_proof()` plugs
+directly into `Verifier.verify_resolution`; Conjecturer's derivations
+plug into `Verifier.verify_natural_deduction`; Synthesizer's CEGIS
+counter-examples can be promoted into ND derivations and re-verified;
+`Driver` can gate any high-stakes return value behind
+``Verifier.verify_*`` returning ``VERIFIED``, giving the coordination
+engine a *hard* safety boundary that composes with conformal /
+quantile / fuzz gates.
+
+```python
+>>> from agi import (
+...     Verifier, VerifierConfig, VerifierCNFFormula,
+...     VerifierResolutionProof, VerifierResolutionStep,
+...     verifier_tcb_summary,
+... )
+>>> V = Verifier(VerifierConfig(hmac_key=b"runtime-attestation"))
+>>> f = VerifierCNFFormula.of([[1, 2], [-1], [-2]])
+>>> proof = VerifierResolutionProof((
+...     VerifierResolutionStep(parents=(0, 1), pivot=1, resolvent=(2,)),
+...     VerifierResolutionStep(parents=(3, 2), pivot=2, resolvent=()),
+... ))
+>>> rep = V.verify_resolution(f, proof)
+>>> rep.status, rep.kernel_calls
+('VERIFIED', 2)
+>>> verifier_tcb_summary()["kernel_rule_count"]
+22
+```
+
+The primitive is **stdlib-only**: no Z3, no Lean, no Coq, no
+``hypothesis``.  Every kernel rule is one or two Python ``if``
+statements; the inner loop is a flat ``for`` over the proof steps with
+a small dispatch table.  Verification is linear in proof length —
+millions of steps verify in well under a second on commodity hardware.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
