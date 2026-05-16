@@ -4085,6 +4085,82 @@ end-to-end.
     wanting a high-performance back-end swaps in Fast Downward or
     Madagascar behind the same public API.
 
+## Inducer — Levin universal search as a runtime primitive
+
+Every primitive in this runtime *executes* programs; **Inducer searches
+the space of all programs.**  Where `Synthesizer` commits to a typed
+DSL and `Solver` to a CNF, Inducer commits to *no model class at all* —
+only to a small stack-based universal VM — and pays the Levin-search
+bound for that generality.  This is the operation that lets the
+coordination engine ask *"is there any program at all that explains
+this trace?"* without first asking *"what kind of program?"*.
+
+The universal VM has 15 active opcodes packed into a 4-bit alphabet
+(`HALT`, `PUSH0/1/2/-1`, `INP`, `DUP/SWP/DRP`, `ADD/SUB/MUL/MOD/NEG`,
+`JNZ`).  Programs are enumerated lexicographically; the discovered
+program comes with a **Kraft mass** (universal-prior contribution
+`2^{-l(p)}`), a **Levin complexity** (`l(p) + log₂ t(p)`, a
+constructive upper bound on `Kt(spec)`), an **Occam PAC bound**
+(Blumer-Ehrenfeucht-Haussler-Warmuth), and a **SHA-256 certificate**
+chaining VM, spec, and program.
+
+::
+
+    >>> from agi.inducer import Inducer, InducerConfig, Spec, induce
+    >>> rep = induce([(2, 4), (3, 9), (5, 25), (7, 49)])  # n -> n²
+    >>> rep.program.disassemble()           # "INP DUP MUL"
+    >>> rep.universal_prior_mass()          # 0.125  (= 2^-3)
+    >>> rep.levin_complexity()              # 12.82 bits
+    >>> rep.occam_bound(delta=0.05)         # PAC ε for held-out generalisation
+    >>> rep.eval([13])                       # 169
+    >>> rep.certificate                      # tamper-evident SHA-256
+
+Two search regimes:
+
+  * **Iterative deepening (default)** — enumerate every program of
+    length 1, 2, ..., L with a fixed per-program step budget.
+    Deterministic, exhaustive, returns the *minimum-length* solver.
+
+  * **Levin universal search** (`mode="levin"`) — Levin's 1973
+    dovetail: phase `i` allocates total budget ``T_i``, and a program
+    of length ``L`` runs for ``⌊T_i / 2^L⌋`` steps.  If any program
+    ``p*`` of length ``L*`` solves the spec in ``T*`` steps, Inducer
+    finds *some* solver in total cost ``R(p*) ≤ K_U · 2^{L*} · T*``
+    (Levin 1973, Theorem 1).  This is the strongest worst-case bound
+    on program search known to be achievable.
+
+A Solomonoff model average — `agi.inducer.kraft_normalised_posterior`
+— turns a list of consistent programs into a Kraft-normalised
+posterior, the prior a coordination engine should feed into Predictor
+or Forecaster for downstream calibration.
+
+Composition with the rest of the runtime:
+
+  * **Predictor** — Predictor's CTW estimates the universal prior over
+    *next symbols*; Inducer estimates it over *programs*.  Feed
+    Inducer's discovered program back into Predictor's prior to
+    accelerate compression on the same source.
+  * **Synthesizer** — Synthesizer searches a typed DSL with PAC
+    bounds; Inducer searches the *unrestricted* universal VM with the
+    Levin bound.  A coordination engine picks Inducer when the DSL is
+    unknown, Synthesizer when the DSL is known.
+  * **Compressor** — Inducer's program length on a string ``x`` is an
+    *upper bound* on ``Kt(x)`` and feeds NCD with tighter (because
+    constructive) numerators.
+  * **Conjecturer** — every Inducer-discovered program is a candidate
+    *generative law* for an observation set; Conjecturer's e-value
+    framework lifts the program to a falsifiable law.
+
+What it does *not* do (yet):
+
+  * No neural-guided search (Schmidhuber's *OOPS* prior bias).  The
+    enumeration order is pure lexicographic; a learned prior over
+    opcodes is the obvious next acceleration.
+  * No partial-evaluation pruning across examples.  Each (program,
+    example) pair is run independently.
+  * No string / list opcodes — the VM operates on integers only.  Add
+    typed opcodes to extend the language.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
