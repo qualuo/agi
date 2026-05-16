@@ -3606,6 +3606,142 @@ primitive doing the work.
     data; whether it is a *causal* law is what `CausalDiscoverer` and
     `Refuter` are for.
 
+## Conjecturer — automated mathematical conjecture generation as a runtime primitive
+
+Every other learning primitive in this stack returns a **parametric**
+mechanism — real-valued coefficients on a fixed basis (`Scientist`), a
+stochastic next-symbol distribution (`Predictor`), a posterior over
+latent state (`Filterer`).  None of them returns an **integer-coefficient
+identity** — the kind of statement a working mathematician would call a
+*conjecture*: ``φ² − φ − 1 = 0``, ``π = 16·arctan(1/5) − 4·arctan(1/239)``,
+``ζ(2) = π²/6``.  An AI system that aspires to *discover laws* — not just
+fit functions — must also produce these.
+
+`agi.conjecturer.Conjecturer` closes that gap.  Given a stream of
+high-precision numerical observations and a set of named constants, it
+searches the lattice of integer linear combinations for one whose
+numerical value is indistinguishable from zero at the working precision —
+and re-evaluates each candidate at *doubled* precision to reject
+spurious matches.  Each surviving conjecture ships with
+
+  * a printable closed-form (`"phi2 −phi −one = 0"`);
+  * the integer coefficients ``mᵢ ∈ ℤ`` of the relation;
+  * the residual ``|Σ mᵢ · vᵢ|`` at the working precision;
+  * a *false-discovery* bound — the Bonferroni probability that a
+    relation of equal precision could be found by chance in the search
+    cube ``{‖m‖_∞ ≤ M}``;
+  * a *verification record* — the doubled-precision residual, which
+    must shrink consistently with the precision increase if the
+    identity is genuine;
+  * a SHA-256 fingerprint chain over every `observe` / `propose` /
+    `verify` / `report` call, compatible with `AttestationLedger`.
+
+```python
+from agi import Conjecturer
+import math
+
+cj = Conjecturer.create(precision_digits=14, seed=0)
+phi = (1 + math.sqrt(5)) / 2
+cj.observe("phi", phi)
+cj.observe("phi2", phi * phi)
+cj.with_constants(("phi2", "phi", "one"))
+for c in cj.propose(max_coeff=3):
+    print(c.signature, "  residual=", float(c.residual))
+# phi2 −phi −one = 0   residual= 0.0
+```
+
+```python
+# Machin's formula recovered from float values of arctan(1/5), arctan(1/239)
+cj = Conjecturer.create(precision_digits=14)
+cj.observe("a", math.atan(1/5))
+cj.observe("b", math.atan(1/239))
+cj.with_constants(("pi", "a", "b"))
+print(cj.propose(max_coeff=20)[0].signature)
+# pi −16·a +4·b = 0
+```
+
+```python
+# Single-constant closed-form recognition
+cj = Conjecturer.create(precision_digits=14)
+recs = cj.recognize_constant((1 + math.sqrt(5))/2, basis=("one", "sqrt5"))
+print(recs[0].expression)        # (one +sqrt5)/2
+```
+
+### Algorithms
+
+* **PSLQ — Ferguson-Bailey 1992** *A polynomial time, numerically stable
+  integer relation algorithm*.  Given a real vector finds either an
+  integer relation or a certificate of its absence.
+* **LLL — Lenstra-Lenstra-Lovász 1982** *Factoring polynomials with
+  rational coefficients*.  Lattice basis reduction with worst-case
+  guarantee ``‖b₁‖ ≤ 2^{(n-1)/4} λ₁(L)``.  Implemented in **exact
+  rational arithmetic** (Python `fractions`) with incremental
+  Gram-Schmidt updates so the answer is determined by the input
+  precision alone.
+* **Continued fractions — Khinchin 1935; Lochs 1964**.  Best rational
+  approximations under denominator budgets, with auto-truncation
+  before "huge" quotients (the empirical signal that the irrational
+  tail has decayed below working precision).
+* **Stern-Brocot tree.**  Binary descent for best rational with
+  denominator ``≤ D`` (Hardy-Wright 1979 §3.7).
+* **Ramanujan Machine — Raayoni et al. 2021** *Nature 590, 67–73*.
+  Numerical search → high-precision re-evaluation; only matches that
+  survive precision-doubling are reported.  `Conjecturer.verify`
+  implements exactly this discipline.
+* **Bonferroni FDR control.**  Search space ``(2M+1)ⁿ`` candidates;
+  each candidate's chance to be spurious at precision ``d`` is
+  ``≤ 2 · 10^{-d}``.  Per-conjecture false-discovery bound shipped
+  with every result.
+* **Plouffe's Inverse Symbolic Calculator (1995).**  Closed-form
+  recognition for a single real constant via LLL against an open
+  registry of named constants — extensible at runtime.
+
+### How it composes with the rest of the runtime
+
+| Question                                                                  | Composition                                                                              |
+|----------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| Is this measured constant a rational?                                      | `cj.recognize_constant(x)` returns CF + Stern-Brocot best rational with denom budget.    |
+| Is it a known transcendental combination?                                  | `cj.recognize_constant(x, basis=("pi","e","gamma",…))` runs LLL over the basis.          |
+| Does my fitted `Scientist.Law` have integer coefficients in disguise?      | Feed `law.coefficients` into `cj.observe(…)` + `cj.propose()`; integer relation ⇒ yes.   |
+| Did my conjecture survive higher-precision evaluation?                     | `cj.verify(conjecture, factor=2)` re-runs at doubled precision; sets `verified` flag.    |
+| Replay the discovery byte-for-byte for an audit.                           | `AttestationLedger` consumes the SHA-256 chain on every observe / propose / verify.      |
+| Refuse to act on a conjecture whose FDR bound exceeds my threshold.        | `Quantilizer.act` gates on `conjecture.fdr_bound ≤ ε`.                                   |
+| Plug a verified identity as an exact constraint into a state filter.       | `Filterer` substitutes ``Σ mᵢ vᵢ = 0`` as an algebraic invariant on the latent state.    |
+| Turn a verified identity into a typed compile-time constant in a tool.     | `Synthesizer` lifts `Conjecture.coeffs` into a static field of a generated Tool.         |
+| Record the identity as an edge with **integer** weight in a knowledge graph| `KnowledgeGraph.add_fact(c.signature, "holds", target, weight=c.coeffs)`.                |
+
+### Investor framing
+
+A coordination engine that can call `Conjecturer.propose(observations)`
+closes a loop none of the other primitives close: from *numbers* to a
+*combinatorial closed-form identity*.  `Scientist` returns a real-valued
+formula; `Conjecturer` returns an *integer-coefficient* formula whose
+discovery survives precision-doubling — the discipline that distinguishes
+a genuine identity from a numerical coincidence.
+
+When the slide says "the AI rediscovered Machin's formula from float-
+precision values of two arctangents, verified it at 30 decimal digits,
+and produced a SHA-256 audit chain that lets a regulator replay the
+discovery byte-for-byte" — `Conjecturer` is the primitive doing the
+work.  It is the runtime substrate for *AI for mathematics* (FunSearch,
+Ramanujan Machine, AlphaProof) reduced to a single composable call.
+
+### What it deliberately doesn't claim
+
+  * A general theorem prover.  An integer relation is a *conjecture* —
+    a candidate identity numerically consistent at the working
+    precision.  Formal proof of the relation requires a downstream
+    proof assistant (Lean, Coq, Isabelle).  `verify` raises the
+    *evidence*, not the *certainty*, of the claim.
+  * A free-form symbolic regressor.  The search is *linear-in-columns*:
+    the user supplies the columns (built-in constants + observations),
+    the primitive finds short integer coefficients.  Quotient or
+    exponential combinations require extending the column set.
+  * A high-precision arithmetic library.  Built-ins ship at ≤ 100
+    decimal digits; for higher precision the user supplies their own
+    evaluator via the `builtin_constants={"name": fn}` constructor
+    parameter.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
