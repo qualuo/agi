@@ -3742,6 +3742,205 @@ Ramanujan Machine, AlphaProof) reduced to a single composable call.
     evaluator via the `builtin_constants={"name": fn}` constructor
     parameter.
 
+## Solver — CDCL satisfiability as a runtime primitive
+
+Every other primitive in this stack returns a *statistical* answer —
+a posterior, a forecast, a calibrated prediction interval, a ranked
+list of conjectures, a sparse linear law.  Statistical answers carry
+probabilities and finite-sample error bars but **never** a logical
+certificate.  A coordination engine driving safety-critical actuation
+needs the complementary capability: given a Boolean specification
+``φ`` over discrete decision variables, return either
+
+  * a satisfying assignment ``α`` with ``α ⊨ φ`` — a concrete plan, an
+    actuator setting, a hardware configuration — together with a
+    machine-checkable confirmation that ``φ(α) = ⊤``;
+  * a **proof of unsatisfiability** — a sequence of resolvents that
+    derives the empty clause from ``φ`` — guaranteeing that no
+    satisfying assignment exists, end of discussion.
+
+`agi.solver.Solver` is the runtime primitive that closes this gap.
+It is a **from-scratch Conflict-Driven Clause Learning (CDCL)** SAT
+solver with every refinement the SAT-competition-winning solvers of
+the last twenty years have settled on:
+
+  * two-watched-literal unit propagation;
+  * 1-UIP conflict analysis with self-subsuming-resolution clause
+    minimisation (Sörensson-Biere 2009);
+  * VSIDS variable activity with multiplicative decay
+    (Moskewicz et al. 2001);
+  * phase saving (Pipatsrisawat-Darwiche 2007);
+  * Glucose-style LBD clause deletion (Audemard-Simon 2009);
+  * Luby restart schedule (Luby-Sinclair-Zuckerman 1993);
+  * incremental SAT under assumptions, with deletion-based MUS
+    extraction (Belov-Marques-Silva 2012);
+  * UNSAT-core MaxSAT via selector-relaxation and cardinality
+    expansion (Fu-Malik 2006);
+  * DRAT-style RUP proof emission and an embedded **re-checker** so
+    every UNSAT verdict ships with a machine-verifiable certificate
+    (Wetzler-Heule-Hunt 2014);
+  * SHA-256 attestation chain over every `add_clause`, `assume`,
+    `solve`, `extract_mus`, `report` — compatible with the rest of the
+    runtime's `AttestationLedger`.
+
+```python
+from agi import Solver
+
+sv = Solver.create(seed=0)
+sv.reserve_vars(3)
+sv.add_clause([1, 2, -3])
+sv.add_clause([-1, 3])
+sv.add_clause([-2, -3])
+r = sv.solve()
+print(r.status)        # → "sat"
+print(dict(r.model))   # → {1: True, 2: False, 3: True}
+```
+
+```python
+# Pigeonhole 5→4 — UNSAT, with a DRAT proof verified by the runtime
+sv = Solver.create()
+sv.reserve_vars(20)
+def x(i, j): return (i-1)*4 + j
+for i in range(1, 6):
+    sv.add_clause([x(i, j) for j in range(1, 5)])
+for j in range(1, 5):
+    for i1 in range(1, 6):
+        for i2 in range(i1+1, 6):
+            sv.add_clause([-x(i1, j), -x(i2, j)])
+r = sv.solve()
+print(r.status)            # → "unsat"
+print(sv.check_proof())    # → True   (DRAT proof self-verified)
+```
+
+The cardinality layer encodes ``Σ lits ≤ k``, ``≥ k``, or ``= k`` via
+Sinz's sequential counter (Sinz 2005) — ``O(n·k)`` clauses, arc-
+consistent under unit propagation:
+
+```python
+sv = Solver.create()
+sv.reserve_vars(64)
+def x(r, c, v): return ((r-1)*4 + (c-1))*4 + v
+# 4×4 Sudoku: each cell / row / col / box has each value exactly once.
+for r in (1,2,3,4):
+    for c in (1,2,3,4):
+        sv.add_exactly([x(r,c,v) for v in (1,2,3,4)], 1)
+# … and so on for rows, columns, 2×2 boxes …
+sv.assume(x(1,1,1))
+sv.assume(x(2,3,3))
+print(sv.solve().status)   # → "sat"
+```
+
+The DSL layer (`var`, `land`, `lor`, `lnot`, `ximp`, `xeqv`, `xite`,
+`at_most`, `at_least`, `exactly`) compiles to CNF via the Tseitin
+transformation; fresh auxiliary variables are allocated strictly
+above the user-reserved range, so user-named variables and internal
+encodings never collide:
+
+```python
+from agi.solver import var, land, lor, lnot, ximp, exactly
+
+a, b, c = var(1), var(2), var(3)
+sv = Solver.create()
+sv.add_formula(land(lor(a, b), ximp(a, c)))   # asserts (a∨b) ∧ (a→c)
+sv.add_formula(exactly(2, [a, b, c]))         # exactly two of {a,b,c}
+print(sv.solve().status)                      # → "sat"
+```
+
+UNSAT-core extraction and MaxSAT round out the picture:
+
+```python
+# Minimal Unsatisfiable Subset over the assumption set
+sv.assume(-3); sv.assume(1); sv.assume(2)     # only -3 is essential
+sv.solve()
+print(sv.extract_mus())                       # → (-3,)
+
+# Weighted MaxSAT: minimum-weight violation under hard constraints
+sv = Solver.create(); sv.reserve_vars(3); sv.add_clause([1, 2, 3])
+cost, model, violated = sv.solve_max_sat(
+    soft=[[-1], [-2], [-3]],
+    weights=[10, 1, 1],
+)                                             # falsify a cheap soft
+print(cost, violated)                         # → 1  (2,)
+```
+
+### Algorithms
+
+* **Cook-Levin 1971/1973 — NP-completeness of SAT.**  Every decision
+  problem in NP reduces in polynomial time to a SAT instance, which
+  is why a fast SAT engine is a fast *general combinatorial reasoner*.
+* **Davis-Putnam-Logemann-Loveland 1962 — DPLL.**  Unit propagation
+  and pure-literal subsumption — the propagation skeleton of every
+  modern CDCL solver.
+* **Marques-Silva-Sakallah 1996 — GRASP.**  *Conflict analysis*: the
+  1-UIP asserting-clause-plus-backjump engine.
+* **Moskewicz-Madigan-Zhao-Zhang-Malik 2001 — Chaff / VSIDS + two-
+  watched literals.**  Variable activity + watched-literal unit
+  propagation — the data structures that made million-clause SAT
+  instances tractable.
+* **Audemard-Simon 2009 — Glucose / LBD.**  *Literal Block Distance*
+  as the empirical correlate of learnt-clause usefulness; periodic
+  deletion of high-LBD clauses keeps the database bounded.
+* **Luby-Sinclair-Zuckerman 1993 — Universal restart schedule.**
+  Worst-case-optimal Las Vegas restart sequence.
+* **Sinz 2005 — Sequential cardinality encoding.**  ``O(n·k)`` clauses
+  for ``Σ lits ≤ k``; arc-consistent under unit propagation.
+* **Tseitin 1968 — Polynomial CNF transformation.**  Every
+  propositional formula compiles to an equisat CNF in linear time
+  via fresh auxiliary variables.
+* **Fu-Malik 2006 — UNSAT-core MaxSAT.**  Iterated selector-relaxation
+  cardinality tightening.
+* **Belov-Marques-Silva 2012 — Deletion-based MUS extraction.**
+  Worst-case linear in the assumption-set size.
+* **Wetzler-Heule-Hunt 2014 — DRAT proof system.**  RUP-based clause
+  addition with deletion records — the proof format every SAT
+  competition since 2014 has adopted.
+
+### How it composes with the rest of the runtime
+
+| Question                                                                | Composition                                                                              |
+|--------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| Does the synthesised tool's precondition hold in the current world?      | `sv.solve(precondition)` — SAT ⇒ a concrete world; UNSAT ⇒ a precondition obligation.    |
+| Is my fitted `Scientist.Law` falsifiable by a Boolean side-condition?    | Encode the sign / parity constraints; `Solver.solve(¬law_constraint)` — SAT ⇒ refutation.|
+| What is the minimum-cost discrete plan under hard safety clauses?         | `Solver.solve_max_sat(soft, weights=utilities, hard=safety_clauses)`.                    |
+| Which assumptions in my context window are *jointly* inconsistent?        | `sv.extract_mus()` — returns a smallest UNSAT subset, the "reason for inconsistency".    |
+| Replay an UNSAT verdict byte-for-byte for a regulator.                    | `AttestationLedger` consumes the SHA-256 chain; `sv.check_proof()` re-verifies the DRAT. |
+| Refuse to act on a Boolean obligation whose UNSAT proof exceeds budget.   | `sv.solve(max_conflicts=B)`; `Quantilizer.act` gates on `result.status == "sat"`.        |
+| Encode a `Topologist` persistence-bar witness as a Boolean obligation.    | Tseitin-encode the witness predicate via `solver_var`, `solver_and`, `solver_at_most`.   |
+| Verify the integer-coefficient `Conjecturer` identity has a sign pattern. | Encode the sign predicate as CNF, `Solver.solve` over a discrete sample space.           |
+
+### Investor framing
+
+When the slide says *"the AI handed the auctioneer a discrete bid
+schedule together with a machine-checked proof that no other
+schedule satisfies the regulator's hard constraints at strictly
+lower cost"* — the SAT solver is the primitive doing the work.
+``Solver.solve_max_sat`` returns the minimum-cost plan, ``check_proof``
+re-verifies the UNSAT certificate of every cheaper alternative, and
+the attestation ledger replays the derivation byte-for-byte.
+
+The same primitive is what makes *"formally verified AI safety"*
+more than a slogan.  ``Solver.solve(¬unsafe_state)`` either returns
+SAT — the AI cannot enter that state — or a counter-example showing
+exactly which inputs do.  No statistical caveat, no calibration
+budget; a Boolean certificate.
+
+### What it deliberately doesn't claim
+
+  * Not an SMT solver.  Variables are pure Boolean; integer,
+    bit-vector, array, or floating-point theories require a
+    downstream Z3, cvc5, or Yices.
+  * Not a parallel / portfolio solver.  Every search call is single-
+    threaded; coordinators wanting portfolio behaviour should run
+    ``Solver`` instances under :class:`Coordinator` and aggregate.
+  * Not a probabilistic / weighted model counter.  Exact ``#SAT`` is
+    ``#P``-complete and beyond the deterministic-decision contract
+    of this primitive.
+  * Not a competitive solver on the SAT-Race scale.  The
+    implementation is in pure Python and intentionally readable.
+    It is the *interface* and *audit chain* that are the
+    contribution; a coordination engine can swap in an industrial
+    back-end behind the same public API.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
