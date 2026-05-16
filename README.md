@@ -3941,6 +3941,150 @@ budget; a Boolean certificate.
     contribution; a coordination engine can swap in an industrial
     back-end behind the same public API.
 
+## Planner — SAT-compiled classical planning as a runtime primitive
+
+A coordination engine driving discrete actuation needs to do more than
+*react* to the current state — it needs to *plan* a sequence of
+actions that achieves a goal.  None of the primitives shipped so far
+returns a *plan*; what they return is a posterior, a forecast, a
+discovered law, a satisfying assignment.
+
+`agi.planner.Planner` closes that gap.  Given a STRIPS-style domain
+(Boolean **fluents**, **actions** with positive/negative preconditions
+and add/delete effects, an **initial state**, a **goal**), it returns
+either
+
+  * a **plan** — a finite sequence of actions whose deterministic
+    execution from the initial state achieves the goal, together with
+    an explicit horizon (length), an action cost, and a SHA-256
+    attestation chain that a regulator can replay byte-for-byte;
+  * or, given an explicit horizon bound, a **proof that no plan of
+    bounded length exists** — the DRAT proof emitted by the underlying
+    :class:`Solver` on the bounded plan-existence formula.
+
+The `Planner` sits one composition layer above `Solver`: every plan
+query is compiled to a SAT instance via the Kautz-Selman-1992
+*SATPlan* encoding, dispatched to `Solver`, and the returned model
+(or UNSAT proof) is decoded back into the planning vocabulary.
+
+```python
+from agi import Planner
+
+pl = Planner.create(seed=0)
+pl.add_fluent("at_A")
+pl.add_fluent("at_B")
+pl.add_action("move_AB", pre=["at_A"], add=["at_B"], delete=["at_A"])
+pl.set_initial({"at_A": True})
+pl.set_goal({"at_B": True})
+plan = pl.solve()
+print(plan.actions)        # → ("move_AB",)
+print(plan.horizon)        # → 1
+print(plan.cost)           # → 1
+```
+
+```python
+# Tour: visit A, B, C, D starting at A
+for loc in "ABCD":
+    pl.add_fluent(f"at_{loc}")
+    pl.add_fluent(f"v_{loc}")
+for X in "ABCD":
+    for Y in "ABCD":
+        if X != Y:
+            pl.add_action(f"go_{X}_{Y}",
+                          pre=[f"at_{X}"],
+                          add=[f"at_{Y}", f"v_{Y}"],
+                          delete=[f"at_{X}"])
+pl.set_initial({"at_A": True, "v_A": True})
+pl.set_goal({f"v_{X}": True for X in "ABCD"})
+plan = pl.solve()
+# horizon = 3 — minimum number of moves to visit B, C, D from A
+```
+
+```python
+# Parallel mode: non-interfering actions co-fire at the same step
+pl.solve(parallel=True).parallel_steps  # → (("do_a","do_b","do_c","do_d"),)
+```
+
+The relaxed-reachability machinery is exposed as composable building
+blocks: ``reachable_fluents`` returns the delete-relaxed-reachable
+set, ``h_max`` returns a Bonet-Geffner-2001 lower bound on plan
+length, ``relaxed_plan`` returns a greedy heuristic plan in the
+delete-relaxed problem.
+
+```python
+pl.h_max()              # → 0..∞   lower bound on optimal horizon
+pl.reachable_fluents()  # → frozenset of delete-relaxed reachable fluents
+pl.relaxed_plan()       # → heuristic action sequence (FF-style)
+```
+
+### Algorithms
+
+* **Fikes-Nilsson 1971 — STRIPS.**  Actions are
+  ``(precondition, add-effect, delete-effect)`` triples over a
+  finite Boolean state space; the canonical classical-planning
+  model.
+* **Kautz-Selman 1992 — Planning as satisfiability.**  Bounded-length
+  plan existence is equivalent to satisfiability of a CNF whose
+  size grows linearly in horizon × |actions|.
+* **McCain-Turner 1997 — Explanatory frame axioms.**  Reduces the
+  encoding by a factor of |fluents| versus the original frame
+  axioms; `Planner` ships exactly this form.
+* **Blum-Furst 1997 — Graphplan / mutex propagation.**  The layered
+  reachability structure underlying the ``h_max`` heuristic and
+  the bounded-horizon iteration schedule.
+* **Bonet-Geffner 2001 — h_max heuristic.**  Cost-of-cheapest-
+  achievement over the delete-relaxed graph; the lower bound on
+  optimal plan length used to *start* iterative deepening at the
+  earliest feasible horizon.
+* **Hoffmann-Nebel 2001 — FF / relaxed plan extraction.**  Greedy
+  regression through the layered structure for an upper-bound
+  heuristic plan.
+* **Rintanen 2012 — Madagascar parallel-action planning.**  Multiple
+  non-interfering actions co-fire at the same timestep — the
+  encoding ``parallel=True`` uses.
+
+### How it composes with the rest of the runtime
+
+| Question                                                                | Composition                                                                              |
+|--------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| What sequence of discrete actions achieves my goal under hard safety?    | `Planner.solve()` — returns a plan of minimum horizon; the underlying SAT solver       produces a DRAT certificate of no-shorter-plan-exists. |
+| What is the lower bound on action cost before the agent commits?         | `Planner.h_max()` — Bonet-Geffner lower bound; the coordinator gates on this.            |
+| Refuse to act unless the plan is *optimal*.                              | `Planner.solve_optimal()` ⇒ horizon equals the underlying lower bound.                   |
+| Is the goal *provably* infeasible?                                       | `Planner.h_max()` raises `GoalUnreachable` when the relaxed-reachable set excludes it.   |
+| What's the maximum-parallelism schedule of the plan?                     | `Planner.solve(parallel=True).parallel_steps` — Rintanen-style mutex-respecting layers.  |
+| Replay the plan derivation byte-for-byte for a regulator.                | `AttestationLedger` consumes the SHA-256 chain; the underlying `Solver.check_proof`       re-verifies the bounded-horizon UNSAT witness. |
+| Compose with `Synthesizer` to lift each action into a typed tool call.   | `Synthesizer.compile(plan.actions)` → an executable tool-call trace.                      |
+| Compose with `Quantilizer` to gate execution on plan optimality.         | `Quantilizer.act` checks `plan.horizon == pl.h_max()` before dispatch.                    |
+
+### Investor framing
+
+When the slide says *"the agent returned an executable 7-step plan
+for the warehouse robot, together with a machine-checkable proof
+that no 6-step plan exists under the operator's hard-safety
+constraints"* — `Planner.solve_optimal` is the primitive doing the
+work.  The plan is the deliverable; the UNSAT certificate of every
+shorter horizon is the *audit*.
+
+For multi-agent coordination, `Planner` is the *discrete control
+plane* of every actuator the runtime drives: the LLM proposes a
+goal, `Planner` returns the minimum-cost executable sequence
+respecting hard safety clauses, `Coordinator` dispatches the steps
+in parallel, and `AttestationLedger` records every state transition
+end-to-end.
+
+### What it deliberately doesn't claim
+
+  * Not a numeric / hybrid / temporal planner — fluents are pure
+    Boolean; numeric resources, durative actions, or timed initial
+    literals require a downstream PDDL+ engine.
+  * Not a probabilistic / MDP planner — the underlying solver is
+    deterministic Boolean SAT.  For probabilistic planning use
+    :class:`~agi.coordinator.Coordinator` over a learnt world model.
+  * Not a competitive IPC planner.  The implementation is in pure
+    Python and intentionally readable; a coordination engine
+    wanting a high-performance back-end swaps in Fast Downward or
+    Madagascar behind the same public API.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
