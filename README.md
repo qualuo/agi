@@ -4267,6 +4267,132 @@ statements; the inner loop is a flat ``for`` over the proof steps with
 a small dispatch table.  Verification is linear in proof length —
 millions of steps verify in well under a second on commodity hardware.
 
+## Sketcher — bounded-memory streaming sketches as a runtime primitive
+
+Every other primitive in this runtime quietly assumes that someone can
+keep the whole stream in memory.  ``Predictor`` keeps every prefix,
+``Forecaster`` keeps every prediction-target pair, ``DriftSentinel``
+keeps a reference window of arbitrary size, ``Auditor`` keeps every
+event, ``Calibration`` keeps every score.  At laboratory scale this
+is fine.  At runtime scale — millions of events per second through a
+coordination engine over weeks of autonomous operation — it is
+fatal.  A production runtime cannot keep everything; it must keep a
+**sketch** with provable, finite-sample-valid error bounds.
+
+`Sketcher` is the runtime's **bounded-memory streaming primitive**.
+Given a stream of items and a sketch kind, it returns an answer with
+an explicit `(ε, δ)` error certificate, the exact byte count of the
+state it consumed, and an HMAC over the canonical state for
+tamper-evidence.  Eleven sketches ship in one module, every one of
+them pure-stdlib:
+
+  * **Misra-Gries (1982)** heavy-hitters with `k` counters —
+    deterministic, every item with frequency above `N / (k + 1)`
+    survives, additive error ≤ `N / (k + 1)` on every item.
+  * **Count-Min Sketch (Cormode-Muthukrishnan 2005)** with optional
+    **conservative update (Estan-Varghese 2003)** — ε-additive
+    over-estimate with probability ≥ 1 − δ at shape
+    `w = ⌈e/ε⌉, d = ⌈ln 1/δ⌉`.
+  * **Count Sketch (Charikar-Chen-Farach-Colton 2002)** — signed-hash
+    median estimator, *unbiased* point query with ℓ₂-norm error.
+  * **AMS / tug-of-war (Alon-Matias-Szegedy 1996)** for the second
+    frequency moment `F₂`.
+  * **HyperLogLog (Flajolet-Fusy-Gandouet-Meunier 2007)** with
+    **HLL++ linear-counting correction (Heule et al. 2013)** —
+    cardinality estimation with relative standard error
+    ≈ `1.04 / √(2^p)` using `2^p` one-byte registers.
+  * **KLL (Karnin-Lang-Liberty 2016)** optimal mergeable quantile
+    sketch — `ε ≈ √log(1/δ) / k` simultaneous rank error over every
+    quantile, with weight-preserving pair-and-promote compaction
+    and random-orphan handling for sorted-stream symmetry.
+  * **Greenwald-Khanna (2001)** deterministic quantile sketch —
+    additive rank error ≤ ε·N, no randomness.
+  * **Vitter (1985) reservoir sampling** (Algorithm R) — uniform
+    sample of size `k` from an unbounded stream.
+  * **Efraimidis-Spirakis (2006) weighted reservoir** (A-Res) —
+    weighted-without-replacement sample with inclusion probability
+    proportional to weight.
+  * **Bloom (1970) filter** — probabilistic set membership with
+    one-sided false-positive rate matching the configured target.
+  * **Exponential histogram (Datar-Gionis-Indyk-Motwani 2002)** —
+    `ε`-relative-error sliding-window counting in
+    `O((1/ε) log²(εN))` space.
+
+The pitch reduced to a runtime call:
+
+```python
+>>> from agi.sketcher import Sketcher
+>>> # Cardinality of a 200k-distinct-item stream in 4 KB of state
+>>> sk = Sketcher.hll(precision=12)
+>>> for x in range(200_000):
+...     sk.update(f"item_{x}")
+>>> sk.cardinality()
+204533.0   # rel-error 2.3%; theoretical RSE ≈ 1.6%
+>>> sk.report().n_bytes
+4111
+>>> sk.report().epsilon       # actual relative-standard-error guarantee
+0.01625
+```
+
+Every sketch is **mergeable** where the underlying algorithm admits a
+mergeable summary — Misra-Gries, Count-Min, Count-Sketch, HLL, KLL,
+GK, Bloom, AMS-F2 — meaning a distributed coordination engine can
+shard a stream across N workers, sketch independently, and combine
+the sketches into one answer of the same asymptotic quality as a
+serial sketch over the union:
+
+```python
+>>> workers = [Sketcher.hll(precision=14, seed=0) for _ in range(8)]
+>>> for w in workers:
+...     for _ in range(50_000):
+...         w.update(some_id())
+>>> union = Sketcher.hll(precision=14, seed=0)
+>>> for w in workers:
+...     union.merge(w)
+>>> union.cardinality()
+# distinct ids across all 8 shards, identical to a single-sketch run
+```
+
+The report carries:
+
+  * `estimate`: kind-specific — an int for cardinality / count, a
+    dict for quantiles, a list for samples / heavy-hitters;
+  * `epsilon`, `delta`: the *actual* certificate values that follow
+    from the sketch's configured shape, not the user's target;
+  * `n_items`, `n_bytes`, `capacity`: measured state footprint a
+    coordinator can quote to a memory-budget admission gate;
+  * `mergeable`: whether this kind admits the distributed-shard merge;
+  * `certificate`: HMAC over the canonical state for tamper-evidence
+    (replayable by `AttestationLedger`).
+
+Composition with the rest of the runtime is the design intent:
+
+  * **CountMin → DriftSentinel** — low-memory drift detection over
+    high-cardinality identifiers (per-id frequencies under
+    bounded state).
+  * **HyperLogLog → Auditor** — distinct-counts of compliance-
+    relevant entities (users, models, datasets) in a long-lived
+    audit ledger.
+  * **MisraGries → Compressor** — heavy-hitter symbol weights as
+    an empirical prior for MDL code-book construction.
+  * **KLL → Forecaster** — streaming quantile-binned calibration
+    histograms updated on every observation.
+  * **Reservoir → ExperimentDesigner** — unbiased eval-pool
+    sampling from a vastly larger candidate stream.
+  * **Bloom → ToolSynth** — dedup of candidate synthesised programs
+    without storing every hash.
+  * **F2Sketch → CausalDiscoverer** — streaming approximation of
+    second-moment-based mutual information.
+  * **ExpHistogram → Forecaster** — sliding-window event counts for
+    short-horizon predictions.
+
+The primitive is **stdlib-only**: no NumPy, no probabilistic-counters
+library, no fast hash dependency.  Hashes go through `hashlib.blake2b`
+keyed by a per-salt 8-byte integer (cheap, pairwise-independent in
+practice); PRNG seeds are scrambled through SplitMix64 before
+xorshift so small consecutive seeds give strongly decorrelated streams
+(important for federated sketching with worker-id-derived seeds).
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
