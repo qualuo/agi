@@ -4541,6 +4541,148 @@ as `Solver` and `Planner`.
     coordination engine has an explicit checkpoint between "the
     analogy proposes X" and "the runtime claims X".
 
+## Searcher — bounded-anytime certified tree search as a runtime primitive
+
+Every other primitive in this runtime **consumes** a question.  Predictor
+gets a stream and returns the next symbol; Solver gets a CNF and returns
+SAT/UNSAT; Inducer gets a spec and returns a program.  But the operation
+that decides **which question to ask next**, given a state, a set of
+admissible actions, and a means of evaluating their consequences, is
+*search*.  Search is the canonical primitive of every agent that acts
+under uncertainty over a tree of options — **AlphaZero is search,
+MuZero is search, Stockfish is search**, the A\* planner inside a
+self-driving stack is search, and the move-list a debugger considers
+in front of a bug is search.  `Searcher` is the runtime's *bounded,
+anytime, certified* version of that operation, exposed as a single
+primitive a coordination engine can drive with budgets it must respect.
+
+The pitch reduced to a runtime call:
+
+```python
+>>> from agi import Searcher, SearcherConfig
+>>> sv = Searcher(SearcherConfig(algorithm="puct", max_iterations=4096))
+>>> report = sv.search(
+...     root_state,
+...     actions=lambda s: s.legal_moves(),
+...     apply=lambda s, a: s.play(a),
+...     terminal=lambda s: s.is_terminal(),
+...     reward=lambda s: s.reward(),
+...     policy_prior=lambda s, A: {a: 1/len(A) for a in A},
+...     value=lambda s: 0.0,
+... )
+>>> report.best_action          # canonical recommended action at the root
+>>> report.best_value           # search's value estimate
+>>> report.principal_variation  # deepest sequence the search agreed on
+>>> report.certificate          # SHA-256 chain of (parent, action, child) events
+>>> report.budget_used          # nodes, time, peak depth — what the search consumed
+>>> report.regret_bound         # algorithm-specific finite-time regret bound
+```
+
+### Algorithms shipped
+
+Six families of search under a single `algorithm=` switch.  The default
+is `"auto"` — pick the family that respects the supplied evaluator
+signatures.
+
+  * **A\*** (Hart-Nilsson-Raphael 1968) — best-first over `f = g + h`.
+    Optimally efficient under a consistent heuristic.  `weighted=w`
+    switches to **weighted A\*** (Pohl 1970) with a worst-case `w`-
+    suboptimality bound.
+  * **IDA\*** (Korf 1985) — iterative-deepening A\* with linear space.
+  * **UCT** (Kocsis-Szepesvári 2006) — MCTS with the **UCB1** rule
+    (Auer-Cesa-Bianchi-Fischer 2002).  Finite-time regret
+    `O(K log T / Δ_min)`.
+  * **PUCT** (Silver et al. 2017, AlphaGo Zero) — UCT with a *policy
+    prior* `P(s,a)` added to the exploration term.  Reduces to UCT
+    under a uniform prior; the AlphaZero recommendation `c_puct=1.25`
+    is the default.  Optional **Dirichlet root noise** for self-play.
+  * **Alpha-Beta** (McCarthy 1956 / Knuth-Moore 1975) with iterative
+    deepening (Slate-Atkin 1977), transposition table (Greenblatt
+    1967), history heuristic (Schaeffer 1989), and aspiration windows.
+  * **Beam search** (Reddy 1977) with configurable width and score
+    direction (`"value"` or `"cost"`).
+  * **Branch-and-Bound** (Land-Doig 1960) — best-first with incumbent
+    pruning.
+
+### What "bounded, anytime, certified" means
+
+  * **Bounded** — every algorithm exposes a uniform stop predicate
+    over (wall-clock seconds, expansion count, node count, peak
+    memory, deadline timestamp).  A coordinator with 30 ms left in
+    its SLO budget passes that 30 ms and gets back the best decision
+    the searcher could compute within it.  `report.budget_used` and
+    `report.bound_hit` record exactly what was consumed and which
+    bound (if any) fired.
+  * **Anytime** — at every iteration the current best action and
+    value are well-defined.  `report.history` records the
+    `(iteration, best_action, best_value)` trajectory so a
+    coordinator can detect convergence.
+  * **Certified** — every report carries a SHA-256 chain over the
+    canonical sequence of `(parent_key, action, child_key, evaluation,
+    selected)` decisions.  Replaying the search against the same
+    config, root, evaluators, and RNG seed reproduces the chain
+    byte-for-byte.  Two processes that agree on the certificate
+    agree on the search.  Optional HMAC under a `secret_key` for
+    authenticated chains.
+  * **Pure stdlib** — no NumPy, no Torch, no SciPy.  The same module
+    runs inside a sandboxed coordinator, inside a CI worker, inside
+    a 256 MB Lambda.
+
+### How it composes with the rest of the runtime
+
+Every evaluator (`actions`, `apply`, `terminal`, `reward`, `heuristic`,
+`policy_prior`, `value`) is a Python callable the coordinator supplies
+— *including other primitives in this runtime*.  Composition is the
+whole point:
+
+  * **`Predictor`** as `value` — CTW gives a calibrated leaf estimate
+    over a symbol stream; PUCT then chooses where to spend the next
+    sampling step.
+  * **`Verifier`** as `terminal` — a proof-checker terminates the
+    branch the moment the lemma is discharged; the certificate
+    composes with `AttestationLedger`.
+  * **`Solver`** as `apply` — for a SAT-encoded transition system,
+    CDCL is the move generator; `Searcher` then drives the high-level
+    plan search.
+  * **`Analogist`** as `policy_prior` — retrieved structural mappings
+    bias the prior toward actions that worked in analogous past
+    cases.
+  * **`Conformal`** wraps the leaf `value` in a distribution-free
+    coverage interval — a coordinator can SLO on
+    `P(true_value ∈ [lo, hi]) ≥ 1−α` per leaf.
+  * **`Cartographer`** can use `Searcher`'s `report.regret_bound`
+    as the "ZPD" signal: a task whose search produces a regret
+    bound that just barely shrinks under more iterations is in the
+    zone of proximal development.
+
+### Investor framing
+
+PUCT is the algorithmic core of every milestone-grade AI of the last
+decade: AlphaGo Zero, AlphaZero, MuZero, Stockfish-NNUE, and modern
+LLM-based code-search agents.  `Searcher` is the runtime's
+**deterministic, certificate-producing rendering** of that core,
+callable as a single in-process primitive that respects an SLO
+budget and composes with every other primitive in the runtime.  It
+turns "give the agent more thinking time" from a vague request into
+a *measurable budget knob* a coordination engine can dial.
+
+### What it deliberately doesn't claim
+
+  * `Searcher` does not learn its own value or policy network — that
+    requires gradient compute, which is the job of the learner track
+    (LoRA SFT) and out of scope for the in-process runtime.  It will
+    use a learned model the moment a coordinator passes one in as a
+    callable.
+  * It does not solve continuous-action MDPs out of the box; progressive
+    widening (`Coulom 2007`) is shipped behind `progressive_widening=
+    True` for the discrete-projection case.  True continuous-control
+    integration (cross-entropy method, iLQR, MPPI) is a separate
+    primitive.
+  * The certificate proves *reproducibility*, not *correctness of the
+    evaluators*.  A buggy `reward` produces a tamper-evident search
+    over a buggy reward.  Compose with `Verifier` / `Refuter` to
+    establish that the *evaluators* themselves are sound.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
