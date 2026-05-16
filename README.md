@@ -4837,6 +4837,111 @@ A coordinator's investor dashboard is upstream of the field: the
     tamper-evident garbage student out.  Compose with `Verifier`
     on the upstream targets.
 
+## Curator — automated curriculum *generation* as a runtime primitive
+
+Every long-running runtime that learns eventually faces a problem
+that neither `Cartographer` nor `Arbiter` can answer alone.
+Cartographer selects *from a given pool* of tasks the one with the
+highest expected learning progress.  Arbiter commits to the best of
+*a finite arm set* with a fixed-confidence bound.  But the problem
+upstream of both is: **where does the pool come from?**  AlphaZero
+is not AlphaZero because it picks well from a fixed library of
+board positions — it is AlphaZero because **self-play generates the
+positions, at a difficulty just beyond current capability,
+forever**.  The same is true of every self-improving system: a
+curriculum is *built*, not given.
+
+`Curator` is the runtime primitive that builds it.  Given a
+parameterised task generator (a function from a difficulty vector
+`θ ∈ Θ` to a concrete task) and a competence oracle (a function that
+runs the agent against a task and returns 0/1 success), `Curator`
+maintains an online estimate of the agent's competence across `Θ`
+and proposes new tasks drawn from the **frontier of proximal
+development** (Vygotsky 1934, Oudeyer & Kaplan 2007): tasks the
+agent solves with probability that is neither too low (no signal)
+nor too high (no progress), and whose learning progress is empirically
+the highest.
+
+### The four-primitive self-improvement loop
+
+`Curator` is the missing fourth leg of the in-process AlphaGo-style
+loop the runtime now ships end-to-end:
+
+```
+  Curator    → proposes new tasks at the ZPD frontier
+   ↓
+  Searcher   → solves them (PUCT / A* / alpha-beta / …)
+   ↓
+  Distiller  → compiles solutions into a fast student
+   ↓                                  ↑
+   └── student becomes Searcher's     │
+       policy_prior + value for the   │
+       next round ────────────────────┘
+```
+
+Composed with `Cartographer` (which picks *among* the Curator's
+proposals by learning progress), the runtime has the complete
+chain:
+
+  * **"where do new tasks come from?"** → `Curator`
+  * **"which of the proposed tasks should I attempt next?"** →
+    `Cartographer`
+  * **"given this task, what's the answer?"** → `Searcher`
+  * **"compile the answer into a callable student"** → `Distiller`
+  * **"use the student as the prior for the next Searcher call"**
+    → loop closed
+
+### Strategies shipped
+
+  * **`"zpd"`** — Vygotsky's zone of proximal development.  Sample θ
+    such that the posterior on competence is closest to
+    `target_competence` (default 0.6).  Uses the Beta-Binomial
+    conjugate (Jeffreys prior) and the Wilson score interval.
+  * **`"learning_progress"`** — Oudeyer-Kaplan IAC (2007).  Track
+    recent vs. older competence per cell; sample θ proportional to
+    `|μ̂_recent − μ̂_prev|`.
+  * **`"thompson_lp"`** — Thompson sampling over learning progress.
+    Draw posterior LP per cell from Beta(s+½, n−s+½) and pick the
+    argmax.  Russo et al. (2018) regret bounds apply.
+
+### Calibration
+
+`Curator.brier_score()` reports the Brier score of the predicted-vs-
+realised success rate over the last `brier_window` proposals
+(Gneiting & Raftery 2007).  A coordinator can SLO-gate on calibration.
+
+### Certificate chain
+
+SHA-256 chained over the canonical (proposal, observation) event
+sequence.  Replay-verifiable byte-for-byte under the same config and
+seed.  Optional HMAC under `secret_key` for authenticated chains.
+
+### Investor framing
+
+AlphaGo Zero's *self-play* is the single most important reason it
+crossed superhuman play: it generated its own training data, at
+the difficulty just beyond what it could do.  `Curator` is the
+runtime's **generic, in-process renderer of that idea** —
+domain-agnostic, certificate-producing, stdlib-only.  Together with
+`Searcher` and `Distiller` it closes the in-process self-improvement
+loop the rest of the architecture needs to *compound* over time;
+a coordinator's investor dashboard can watch the
+`improvement_over_baseline` curve fall and the frontier difficulty
+rise as the agent learns.
+
+### What it deliberately doesn't claim
+
+  * `Curator` does not *invent* the difficulty parameterisation —
+    the user supplies `param_lo` / `param_hi` / `n_buckets` and a
+    `generator(theta) → task` callable.  Auto-discovering a useful
+    parameterisation is an open research problem (UED, POET,
+    Open-Ended Learning).
+  * The Beta-Binomial competence posterior assumes binary outcomes;
+    fine-grained quality scores are passed in via the `success`
+    binarisation (e.g. `success = quality >= threshold`).
+  * The cell discretisation is uniform.  Adaptive (KD-tree, BSP)
+    discretisation is a natural extension and not yet shipped.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
