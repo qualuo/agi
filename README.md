@@ -3249,6 +3249,137 @@ BIRL's MCMC chain produces sensible posterior credible regions with
 acceptance rate in the Roberts-Rosenthal band, and the soft-optimal
 policy is a valid conditional distribution everywhere.
 
+## Topologist — topological data analysis as a runtime primitive
+
+Every primitive in this runtime that "looks at the shape of data" does
+so through a statistical lens — moments, quantiles, kernel densities,
+mixture parameters, calibration histograms. Statistics is a contraction
+that throws away geometric information. A point cloud that has three
+well-separated clusters, a point cloud that lies on a circle, and a
+point cloud that lies on a sphere with a hole punched in it **can all
+share the same mean and covariance** while having radically different
+latent structure. No other primitive in this runtime distinguishes them.
+
+The `Topologist` is the runtime primitive that closes that gap. It
+implements **persistent homology** (Edelsbrunner-Letscher-Zomorodian
+2002) on a filtered Vietoris-Rips complex (Vietoris 1927; Rips 1981)
+and returns, for every requested homological dimension, the multiset
+of `(birth, death)` pairs that summarise the topological invariants
+of the data at every scale. Dimension 0 counts connected components
+(clusters); dimension 1 counts independent loops; dimension 2 counts
+independent voids. Each pair has a persistence `death − birth`
+measuring how robust the feature is to scale perturbation, and the
+diagram as a whole comes with a **stability certificate**:
+
+> For any two finite metric spaces *X*, *Y* and any homological
+> dimension *k*,
+>
+>     d_B(D_k(X), D_k(Y)) ≤ d_H(X, Y)
+>
+> where *d_B* is the bottleneck distance between persistence
+> diagrams and *d_H* is the Hausdorff distance between point
+> clouds. (Cohen-Steiner-Edelsbrunner-Harer 2007.)
+
+Stability holds for **any** underlying distribution — no smoothness,
+ergodicity, or i.i.d. assumption is required. This is the one
+primitive that is genuinely *distribution-free* and *model-free*.
+
+### Runtime API
+
+```python
+from agi import Topologist
+
+top = Topologist.create(max_dim=1, max_scale=2.5, seed=0)
+for p in cloud:
+    top.observe(p)
+
+diag = top.compute()                       # PersistenceDiagram
+barcode = diag.barcode(dim=0)              # cluster stability ranking
+loops = diag.diagram(dim=1)                # circular structure
+top3 = diag.k_most_persistent(0, 3)        # top-3 clusters by persistence
+ls = diag.landscape(dim=1, num_levels=3)   # vectorised feature
+betti = diag.betti(scale=1.2)              # β_0, β_1, ... at given scale
+
+band = top.bootstrap_band(n_resamples=50, alpha=0.05)   # Fasy et al. 2014
+sig = diag.significant_features(dim=1, threshold=band.dim(1))
+
+drift = diag.bottleneck_distance(reference_diagram, dim=1)
+cert = top.stability_certificate(hausdorff_perturbation=0.05)
+report = top.report()
+```
+
+Every `observe`, `compute`, `bootstrap_band`, `bottleneck_to` and
+`report` is hashed into a SHA-256 fingerprint chain compatible with
+`AttestationLedger`.
+
+### What a coordination engine uses it for
+
+| Question                                                              | Call                                                  |
+|-----------------------------------------------------------------------|-------------------------------------------------------|
+| How many distinct modes are these LLM rollouts clustered into?        | `diag.significant_features(0, threshold=band.dim(0))` |
+| Did the world-model close a loop in its latent space?                 | `diag.diagram(1)` with persistence above noise        |
+| Is this batch of embeddings still on the policy's training manifold?  | `diag.bottleneck_distance(reference, dim=1)`          |
+| Has a new failure mode opened a hole in the calibration curve?        | `diag.betti(scale)` at the operating scale            |
+| With what confidence can I claim "the data has *k* clusters"?         | `bootstrap_band` quantile vs feature persistence      |
+
+### Mathematical roots
+
+  * **Vietoris 1927; Rips 1981 — Vietoris-Rips complex.** The
+    abstract simplicial complex on `(X, d)` at scale `r` whose
+    `k`-simplices are the size-`(k+1)` subsets of diameter ≤ `r`.
+  * **Edelsbrunner-Letscher-Zomorodian 2002 — Persistent homology.**
+    The filtered chain complex induced by the inclusion
+    `VR(X, r) ⊆ VR(X, r')` for `r ≤ r'` yields homology classes
+    that are born at one scale and die at another; their
+    `(birth, death)` pairs form the *persistence diagram* `D_k(X)`.
+  * **Elder rule (dim 0).** Connected components admit a closed-form
+    algorithm: process edges in nondecreasing scale order, track
+    components with a union-find, and on every merge kill the
+    *younger* (later-born) component.
+  * **Standard matrix reduction (dim ≥ 1).** All simplices ordered
+    by `(filt_value, dim, index)`; boundary matrix over `𝔽_2`
+    reduced left-to-right; unpaired columns = essential classes,
+    paired columns = `(birth, death)` pairs of the lower dimension.
+  * **Cohen-Steiner-Edelsbrunner-Harer 2007 — Stability.**
+    `d_B(D, D')` is 1-Lipschitz in the Hausdorff distance between
+    point clouds: a perturbation of size `ε` moves every persistence
+    point by at most `ε` in `ℓ_∞`.
+  * **Bubenik 2015 — Persistence landscapes.** The `k`-th
+    landscape function `λ_k(t) = k`-th max of the tent functions
+    `tent_{(b,d)}(t) = max(0, min(t − b, d − t))`. Each landscape
+    is 1-Lipschitz in bottleneck distance, giving a stable vector
+    representation for downstream models.
+  * **Fasy-Lecci-Rinaldo-Wasserman-Balakrishnan-Singh 2014 —
+    Subsampled bootstrap.** The empirical `1 − α` quantile of the
+    bottleneck distance between subsample diagrams and the full
+    diagram is an asymptotic `1 − α` confidence band for the
+    population diagram; features above `2 ·` quantile from the
+    diagonal are statistically significant at level `α`.
+
+### Investor framing
+
+Every other primitive in the stack commits to a parametric model
+class before it sees the data (mixture of Gaussians, tree source,
+Gaussian process, Markov chain). The `Topologist` is the only
+primitive that supplies a **model-free, geometry-only** answer to the
+shape question. The output is a structured diagram with a
+finite-sample stability certificate; the coordination engine routes
+the decision through the same audit ledger every other primitive emits.
+
+### What it deliberately doesn't claim
+
+  * A full GUDHI / Ripser replacement. The runtime is pure-Python
+    and tuned for **coordination-scale** clouds (≤ a few hundred
+    points, fast, deterministic). The 2-skeleton reduction is
+    `O((|X|²)ᵂ)` in the worst case; the user caps `max_scale`,
+    `max_points`, `max_simplices`, or `max_dim` to stay tractable.
+    For very large clouds and higher-dimensional homology, an
+    external library remains the right tool.
+  * A statistical test of "this data has a loop". The bootstrap
+    band is a confidence statement on the population diagram; the
+    user still has to decide what "significant persistence" means
+    for their application.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
