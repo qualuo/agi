@@ -4683,6 +4683,160 @@ a *measurable budget knob* a coordination engine can dial.
     over a buggy reward.  Compose with `Verifier` / `Refuter` to
     establish that the *evaluators* themselves are sound.
 
+## Distiller — amortized policy/value distillation as a runtime primitive
+
+Every other primitive in this runtime **computes** an answer.
+`Searcher` runs PUCT on a fresh tree.  `Solver` decides a fresh CNF.
+`Inducer` enumerates fresh programs.  The operation that takes the
+*outputs* of those primitives — visit distributions over actions,
+value estimates at states, accepted decisions on inputs — and
+**compiles them into a cheap, callable model** so the next instance of
+the same kind of question is answered in *amortized constant time* is
+**distillation**.
+
+Distillation is the operational mechanism behind every milestone-grade
+self-improving AI of the last decade: **AlphaGo Zero distils
+800-rollout PUCT into a single forward pass; MuZero distils a learned-
+dynamics search into the same; expert iteration / DAgger distils a
+slow expert into a fast student; algorithmic distillation distils a
+*learning algorithm* into a frozen Transformer's activations**.  In
+every case the search-or-oracle is the *teacher*, the parametric model
+is the *student*, and the expected behaviour of the teacher under the
+student's own distribution is the target.
+
+`Distiller` is the runtime's *bounded, anytime, certified, stdlib*
+version of that operation.  Composed with `Searcher`, it closes the
+AlphaZero-style self-improvement loop **inside one Python process**,
+without a GPU, without a deep-learning framework, without a tokenizer.
+
+The pitch reduced to a runtime call:
+
+```python
+>>> from agi import (Searcher, SearcherConfig, Distiller, DistillerConfig,
+...                  expert_iteration_step)
+>>> teacher = Searcher(SearcherConfig(algorithm="puct", max_iterations=512))
+>>> student = Distiller(DistillerConfig(model="linear", n_features=4096))
+>>>
+>>> for ep in range(100):
+...     state = root_state()
+...     while not is_terminal(state):
+...         rep = teacher.search(state, actions=..., apply=...,
+...                              terminal=..., reward=...,
+...                              policy_prior=student.as_policy_prior(),
+...                              value=student.as_value())
+...         student.observe(state=state,
+...                          action_distribution=rep.root_visits_by_action,
+...                          value=rep.best_value)
+...         state = apply(state, rep.best_action)
+...     student.fit()  # eval-gated swap of the deployed model
+>>>
+>>> # the student is now usable as a *standalone* fast policy/value:
+>>> p_at_s   = student.policy(s, [...actions...])  # dict action → prob
+>>> v_at_s   = student.value(s)                    # scalar
+```
+
+### Model families shipped
+
+All pure stdlib — no NumPy, no PyTorch, no SciPy.
+
+  * **`"knn"`** — exact :math:`k`-nearest-neighbour over a feature-
+    hashed Euclidean distance (Cover & Hart 1967): `O(N)` per query;
+    consistent under the Cover-Hart bound for any
+    state-feature space.
+  * **`"linear"`** — per-action linear softmax policy + linear value
+    head with feature hashing (Weinberger et al. 2009); trained by
+    epoch-shuffled batch gradient descent with `L2` + per-coordinate
+    clip for numerical safety; `O(d)` per query.
+  * **`"locally_weighted"`** — locally-weighted regression (Atkeson,
+    Moore & Schaal 1997): Gaussian-kernel-weighted average over the
+    demonstration set.
+  * **`"ucb_table"`** — exact tabular memoization; the right answer for
+    small finite state spaces.
+  * **`"ensemble"`** — log-linear opinion pool (Gneiting & Raftery 2007)
+    over any subset of the above, with optionally externally-fit weights.
+
+### Calibration
+
+  * **Temperature scaling** (Guo et al. 2017) on the policy logits,
+    fit by Brier-minimisation on a held-out slice.
+  * **Isotonic value calibration** (Brunk et al. 1972) via PAV.
+
+### Eval-gated deployment
+
+Every `.fit()` produces a *candidate* model.  Deployment is gated by
+a held-out cross-entropy + value-MSE drop ≥ `min_improvement`.  A
+candidate that regresses the incumbent **cannot be deployed** — the
+rollback story is enforced inside the primitive.  AlphaZero ladder
+discipline, inside one process.
+
+### Reservoir replay buffer
+
+Vitter (1985) Algorithm R: bounded-memory uniform sample over the
+entire demonstration stream.  No rolling windows, no batch hand-picking,
+no oldest-data bias.
+
+### Certificate chain
+
+SHA-256 chain over the canonical sequence of `(epoch, mini-batch hash,
+parameter delta hash, eval result)` events.  Two distillers in two
+processes fed the same demonstrations under the same seed agree on the
+certificate byte-for-byte.  Optional HMAC under `secret_key` for
+authenticated chains.
+
+### How it composes with the rest of the runtime
+
+`Distiller` is the *amortising co-processor* for the rest of the
+runtime:
+
+  * **`Searcher` ↔ `Distiller`** — the AlphaGo Zero loop:
+    Searcher generates training distributions (`root_visits_by_action`)
+    and value targets (`best_value`); Distiller fits a student;
+    Searcher uses the student as `policy_prior` and `value`; repeat.
+    `expert_iteration_step()` ships this as a one-line helper.
+  * **`Predictor` (CTW)** — Distiller's `value` head can stand in for
+    Predictor's calibrated next-symbol estimate when the state space
+    is fixed.  Wire one into the other.
+  * **`Conformal`** wraps `student.value(s)` in a distribution-free
+    coverage interval, turning "the student predicts +0.42" into
+    "the student predicts +0.42, with 95% coverage of the true value
+    in [+0.21, +0.58]".
+  * **`Cartographer`** uses `DistillerReport.improvement_over_baseline`
+    as the per-skill learning-progress signal: a task whose
+    distillation step *just barely* improves the incumbent is in the
+    zone of proximal development.
+  * **`AttestationLedger`** consumes the certificate chain.  A
+    regulator can replay every parameter update from the certificate
+    alone.
+
+### Investor framing
+
+The AlphaZero ladder — *search produces targets, network distils
+targets, network biases next search, repeat* — is the proven path
+from "useful agent" to "Elo-saturated specialist" in every domain it
+has been tried (Go, chess, shogi, Atari, protein folding, code).
+`Distiller` is the runtime's **in-process, certificate-producing,
+GPU-free realisation of that ladder**.  Composed with `Searcher`, it
+turns "give the agent more training time" from a vague request into a
+*measurable cost-per-decision curve* a coordination engine can dial.
+A coordinator's investor dashboard is upstream of the field: the
+`improvement_over_baseline` is a measured drop, not a claim.
+
+### What it deliberately doesn't claim
+
+  * `Distiller` is not a deep network.  Its model families are
+    deliberately simple — kNN, hashed linear, LWR, exact table — so
+    the runtime stays stdlib-only and reproducible byte-for-byte.
+    For deep-network distillation, swap the `Distiller` model for the
+    learner-track LoRA loop (see `ARCHITECTURE.md`).
+  * It does not solve the *credit assignment* problem inside the
+    teacher — that is the teacher's responsibility (Searcher's
+    `reward`).  Distiller is a *function approximator* for whatever
+    targets the teacher emits.
+  * The certificate proves *reproducibility of the fit*, not
+    *correctness of the teacher's targets*.  Garbage targets in,
+    tamper-evident garbage student out.  Compose with `Verifier`
+    on the upstream targets.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
