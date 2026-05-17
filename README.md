@@ -5352,6 +5352,132 @@ coordination engine can drive.
     natively supports observation noise but the latent-state dimensionality
     must match the action space.
 
+## Flower — Generative Flow Networks as a runtime primitive
+
+Every prior primitive in this runtime that *selects* returns *one* answer
+— `BayesOpt`'s argmax, `Searcher`'s best leaf, `Solver`'s witness,
+`Planner`'s plan. Every prior primitive that *samples* — `Sampler`, the
+posterior-predictive in `Imaginator` — samples from a fixed target that
+is **not** the reward distribution. Neither is what a real product needs.
+A drug-discovery pipeline ships a *panel*. A program-synthesis loop ships
+a *panel*. A negotiation engine ships a *panel*.
+
+`Flower` is the runtime's **diversification kernel**: the bounded,
+anytime, certified, stdlib-only implementation of Generative Flow
+Networks (Bengio-Lahlou-Deleu-Hu-Tiwari-Bengio 2021; Malkin-Jain-Everett-
+Sun-Bengio 2022 *Trajectory Balance*; Madan et al. 2023 *Sub-trajectory
+Balance*). A GFlowNet learns a forward policy ``P_F(s' | s)`` on a DAG
+such that the marginal probability of terminating at object ``x`` is
+**proportional to the reward**:
+
+```
+P_T(x)  =  R(x) / Z       where     Z = Σ_x R(x).
+```
+
+This is the fundamentally different generative regime: not *"argmax R"*
+(RL), not *"sample from a fixed π"* (MCMC), but **sample objects with
+probability proportional to reward** — the panel the coordinator
+ships, with a calibrated mode-coverage receipt.
+
+```python
+from agi.flower import Flower, FlowerConfig
+
+flow = Flower(FlowerConfig(loss="trajectory_balance"))
+flow.register_env("molecules", initial="",
+                  successors=lambda s: [(c, s + c) for c in "01"] if len(s) < 4 else [],
+                  terminal=lambda s: len(s) == 4,
+                  reward=reward_fn)
+
+for _ in range(300):
+    flow.train_step("molecules", n_trajectories=16, epsilon=0.1)
+
+batch = flow.sample("molecules", n=200)
+print(batch.unique_terminals, batch.mean_reward, batch.mean_reward_lcb)
+
+cov = flow.mode_coverage("molecules", n_samples=500, top_k=3)
+print(cov.tv_to_target, cov.modes_found, cov.mode_coverage_lcb)
+# AttestationLedger.verify(batch.fingerprint)
+```
+
+### Loss families shipped
+
+  * **`"flow_matching"`** — Bengio-Bengio 2021 detailed flow balance at
+    every non-initial non-terminal state: `Σ_in F  =  Σ_out F  +  R·1[terminal]`.
+    Closed-form gradient on log-flow logits.
+  * **`"detailed_balance"`** — Bengio et al. 2021 *GFlowNet Foundations*
+    edge constraint `F(s) P_F(s'|s) = F(s') P_B(s|s')`. Single-edge
+    residual → low gradient variance.
+  * **`"trajectory_balance"`** — Malkin-Jain-Everett-Sun-Bengio 2022.
+    `logZ + Σ log P_F = log R(x) + Σ log P_B`. Lowest-variance
+    GFlowNet loss on small-to-mid DAGs.
+  * **`"subtrajectory_balance"`** — Madan-Rector-Brooks-Korablyov-
+    Bengio-Liu-Chen-Hu-Bengio 2023. Geometric-weighted sub-trajectory
+    residuals; combines FM's local credit-assignment with TB's global
+    signal.
+
+### What the primitive ships
+
+  * **Bounded mode-coverage diagnostics.** Closed-form total-variation
+    distance between the empirical terminal distribution and the
+    reward-proportional target; Hoeffding 1963 UCB on TV; Howard-Ramdas-
+    McAuliffe-Sekhon 2021 anytime-valid LCB on the *coverage probability*
+    over the top-K reward modes.
+  * **Maurer-Pontil + HRMS bounds** on `E[R]` under the learned sampler,
+    written into every `SampleBatch`.
+  * **Top-K Pareto extraction** — distinct terminals with highest
+    reward, paired with observed visit count; the panel the coordinator
+    ships.
+  * **Identifiability report** — under-sampled edges + unreachable
+    rewarded modes; the next-curriculum-batch hand-off to `Curator`.
+  * **PIT calibration** — KS test of the reward PIT vs Uniform(0, 1);
+    the baseline statistic the `DriftSentinel` CUSUM consumes.
+  * **Tamper-evident attestation.** Every register / observe /
+    train_step / sample / certify event chain-hashes into an HMAC-secured
+    fingerprint; a compliance officer replays the candidate batch
+    byte-for-byte from the observation stream + RNG seed.
+
+### Composes with the rest of the runtime
+
+  * `Quantilizer` — Flower's `(terminals, rewards)` *is* the empirical
+    distribution the Quantilizer thresholds on. Ship the K candidates
+    whose reward is in the top-`q` quantile of the GFlowNet's posterior.
+  * `Imaginator` — Imaginator's posterior over rewards is a drop-in
+    `reward_fn` for the Flower when the real reward is delayed or noisy.
+  * `Reconciler` — Flower's terminal distribution is one expert in the
+    pool; Reconciler aggregates GFlowNet + BayesOpt + Searcher into a
+    common-prior consensus.
+  * `Curator` — Flower's identifiability report names the
+    under-sampled (state, action) edges Curator targets next.
+  * `Aligner` — Flower's K-tuple of high-reward terminals is one half
+    of the preference pair the Aligner trains on; the other half is
+    the user's chosen winner. *Generate-then-rank-then-align*, closed
+    loop.
+  * `Distiller` — distil the learned forward policy `P_F` into an
+    amortised classifier that runs at inference time without rollouts.
+  * `DriftSentinel` — PIT-of-rewards is the live uniformity statistic
+    CUSUM trips on when sampling drifts.
+  * `AttestationLedger` — every event chain-hashes; cryptographic
+    replay from observation stream + seed.
+  * `Coordinator` — every Goal that benefits from a *panel* (drug
+    design, code search, negotiation playbooks, hyperparameter sweeps)
+    routes through Flower.
+
+### What it deliberately doesn't claim
+
+  * Not a frontier neural GFlowNet — no transformers, no graph neural
+    nets. The tabular per-edge logit + per-env `logZ` is the
+    **convergent, identifiable** core that admits closed-form gradients
+    and provable mode-coverage bounds.
+  * Not a continuous-action generator — the discrete-DAG core covers
+    every combinatorial-generation use case (molecules-as-strings,
+    programs-as-tokens, layouts-as-grids); continuous extensions
+    (Lahlou-Deleu-Hu-Bengio 2023) are reserved for a follow-up
+    primitive.
+  * Not a guaranteed exploration mechanism — the GFlowNet samples
+    proportional to reward, not to information gain. Pair with
+    `Curator` for active-learning-style exploration of the
+    identifiability gap.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
