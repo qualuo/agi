@@ -21,6 +21,7 @@ agi/                # runtime + agent + reference coordinator
   autoloop.py       # AutonomousLoop — retry-with-lessons until goal accepted
   fork.py           # SessionFork — race N variants, pick winner by critic
   pool.py           # RuntimePool — federation: many runtimes, one dispatch surface
+  manifest.py       # discoverable primitive catalog — `what can you do?` for the coordinator
   capabilities.py   # observed-performance routing — learn which roles win where
   policy.py         # PolicyRouter — Thompson-sampled bandit on top of capabilities
   selfeval.py       # SelfEvalBank — agent-mined regression suite + promotion gate
@@ -461,6 +462,74 @@ rt.save_skill(Skill(
     body="1. Identify last-known-good commit.\n2. git bisect run …",
     tags=["debugging", "git"],
 ))
+```
+
+## Manifest — discoverable primitive catalog for the coordination engine
+
+A coordination engine that drives the runtime needs a single
+machine-readable answer to *"what can you do?"* — not a flat list of
+Python imports, but a structured catalog it can filter, rank, and
+dispatch against.  `Manifest` is that catalog.  Every runtime primitive
+registers a `PrimitiveSpec` with kind, tags, IO contract, certificate
+class (PAC / anytime / exact / DP), determinism, dependency footprint,
+composes-with edges, and references.  All pure stdlib, all JSON-encodable,
+no import side-effects.
+
+```python
+from agi.manifest import (
+    default_manifest, KIND_OPTIMIZATION, CERT_PAC, DEP_STDLIB, TAG_SAFETY,
+)
+
+m = default_manifest()  # 108 primitives, fingerprint stable across processes
+
+# Filter the catalog
+opt = m.find(kind=KIND_OPTIMIZATION, certificate=CERT_PAC)
+# → annealer, bayesopt, robustifier, submodular
+
+# "Lightest deployment target — stdlib only, no numpy / torch / llm / network"
+light = m.find(dependencies_max=DEP_STDLIB)
+# → 91 primitives runnable in a bare-bones container
+
+# Free-text intent → ranked recommendations (IDF-weighted token overlap)
+for spec, score in m.recommend("estimate treatment effects from observational data", k=3):
+    print(f"{score:.2f}  {spec.name}: {spec.summary}")
+# → 2.84  causal: Heterogeneous treatment effects — doubly-robust + meta-learner …
+# → 2.56  causal_discovery: Causal structure learning from observational data …
+
+# Plan a pipeline via the composes_with graph
+graph = m.depends_graph()  # closed under lookup; safe to walk
+
+# Export the whole catalog to a remote coordinator
+blob = m.to_json(pretty=True)
+fp   = m.fingerprint()  # SHA-256; pin the catalog version a decision was made against
+
+# Lazy-load: holding a spec is free; importing the module happens on dispatch
+from agi.manifest import PrimitiveLoader
+loader = PrimitiveLoader()
+mod = loader.load(m.lookup("annealer"))
+```
+
+The catalog is the single source of truth: a CI test asserts every
+module in `agi/` is registered, `composes_with` references resolve to
+real entries, every `demo_path` points at a real file, and the
+fingerprint changes deterministically when metadata changes.  A
+versioned schema (`SCHEMA_VERSION`, embedded `stable_id`) lets external
+orchestrators integrate against `agi.<name>.v1` and survive metadata
+evolution.  Every query / lookup / recommend / export emits a typed
+event onto the runtime `EventBus` so coordinator decisions over the
+catalog are themselves auditable.
+
+```
+$ python examples/manifest_discovery_demo.py
+========================================================================
+Catalog overview: 108 primitives
+========================================================================
+  inference           18     optimization        15
+  coordination        12     infrastructure      12
+  learning            10     safety              10
+  observability        9     games                8
+  science              5     decision             4
+  memory               3     economics            2
 ```
 
 ## Preflight — economic decisions before dispatch
