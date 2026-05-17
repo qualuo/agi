@@ -5908,7 +5908,7 @@ cd = a.cooks_distance("price_model")
 # cd[5] = 10.2 — flagged at the conventional 4/n = 0.67 threshold
 
 inf = a.influence("price_model", query=QUERY_PREDICTION, test_point=[1.0, 6.0])
-# inf.most_influential(3) ⇒ [(5, +5.81), (4, -4.85), (3, -2.23)]
+# inf.most_influential(3) ⇒ [(5, -5.81), (4, +4.85), (3, +2.23)]
 
 cf = a.counterfactual_refit("price_model", remove=[5],
                             query=QUERY_PREDICTION, test_point=[1.0, 6.0])
