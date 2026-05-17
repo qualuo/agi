@@ -5848,6 +5848,131 @@ every reverse step.
     sampler accepts a pre-distilled ``consistency_fn``; training the
     distillation target is the user's job.
 
+## Attributor — data attribution / influence functions as a runtime primitive
+
+Every other primitive answers a *forward* question: `Predictor` asks
+"given the data, what comes next?", `Abductor` asks "given the
+observation, which hypothesis?".  None of them answers the *backwards*
+question — "given a fitted model's output, **which of its training
+points caused that output, by how much, and would the output flip if I
+removed them?**".  That question lands every time a downstream decision
+is contested, an outlier is suspected, a privacy-driven unlearning
+request is filed, or an investor asks "*which observations underpin
+this forecast?*".  `Attributor` is the primitive that answers it.
+
+Given a fitted parametric hypothesis ``H = (kind, θ̂)`` and the training
+set ``D = {(x_i, y_i)}_{i=1}^n`` that produced ``θ̂``, plus a smooth
+query ``Q(θ)`` (a test-point loss, a raw prediction, a parameter, or a
+caller-supplied functional), `Attributor` returns
+
+  * the **leave-one-out influence** ``Q(θ̂_{-i}) − Q(θ̂)`` — *exact*
+    closed-form for linear / ridge / logistic regression, and the
+    **first-order influence-function approximation** (Cook 1977;
+    Koh-Liang 2017) for arbitrary differentiable losses via a
+    Hestenes-Stiefel conjugate-gradient solve on the caller's HVP;
+  * **Cook's distance** ``D_i``, **DFBETAS**, **hat-matrix leverage**
+    ``h_ii``, **studentized residuals**, and **Allen (1971) PRESS
+    residuals** — every classical case-influence diagnostic as a
+    one-call accessor;
+  * the **group-LOO** ``Q(θ̂_{-S}) − Q(θ̂)`` for any subset ``S``,
+    computed by **Sherman-Morrison-Woodbury** rank-|S| update at
+    ``O(|S|^3)`` cost (independent of ``n``);
+  * a **counterfactual refit** — drop the top-K most influential
+    points, refit on the remainder, and report the prediction shift
+    bit-exactly;
+  * a **decision-flip certificate** — the smallest greedy set whose
+    removal flips a discrete decision, with an attached *e-value*
+    (likelihood ratio of the counterfactual vs full fit on the
+    original training data);
+  * **TracIn ideal-checkpoint attribution** (Pruthi-Liu-Sundararajan-
+    Inan 2020) ``Σ_t η_t ⟨∇L_i(θ_t), ∇Q(θ_t)⟩`` given a learning
+    trajectory;
+  * **TRAK random-projection scoring** (Park-Georgiev-Ilyas-Madry-
+    Engstrom 2023) for high-dimensional models;
+  * a **bootstrap percentile band** (Efron-Tibshirani 1986) on every
+    per-point influence estimate;
+  * a tamper-evident SHA-256 fingerprint chain over every fit, query,
+    and counterfactual refit so the `AttestationLedger` can replay
+    the full attribution trace byte-for-byte.
+
+```python
+from agi.attributor import Attributor, LINEAR, QUERY_PREDICTION
+
+X = [[1.0, x] for x in (1, 2, 3, 4, 5, 10)]
+y = [1.5, 2.0, 2.5, 3.0, 3.5, 100.0]   # last point is a severe outlier
+
+a = Attributor()
+a.fit("price_model", LINEAR, X=X, y=y)
+
+cd = a.cooks_distance("price_model")
+# cd[5] = 10.2 — flagged at the conventional 4/n = 0.67 threshold
+
+inf = a.influence("price_model", query=QUERY_PREDICTION, test_point=[1.0, 6.0])
+# inf.most_influential(3) ⇒ [(5, +5.81), (4, -4.85), (3, -2.23)]
+
+cf = a.counterfactual_refit("price_model", remove=[5],
+                            query=QUERY_PREDICTION, test_point=[1.0, 6.0])
+# cf.theta_counterfactual = (1.0, 0.5)   — clean fit recovered exactly
+
+flip = a.decision_flip(
+    "price_model",
+    decision_fn=lambda theta: "high" if theta[1] > 5 else "low",
+    budget_k=2, query=QUERY_PREDICTION, test_point=[1.0, 6.0],
+)
+# flip.minimal_set = [5]; flip.decision_after = "low"; flip.e_value attached
+```
+
+**Mathematical roots.** For an M-estimator solving
+``Σ_i ψ(z_i, θ̂) = 0``, Hampel (1974)'s influence function is
+``IF(z_k; θ̂) = H(θ̂)^{-1} ψ(z_k, θ̂)``.  Koh-Liang (2017) lift this
+to deep models via the chain rule
+``Influence_i(Q) ≈ −∇Q(θ̂)^⊤ H(θ̂)^{-1} ∇L_i(θ̂)``, exact to first
+order in ``1/(n − p)`` under standard convexity.  For linear regression
+the same identity collapses to the *PRESS residual* (Allen 1971)
+``ε_{i,(i)} = ε̂_i / (1 − h_ii)`` — exact, not first-order.  For
+logistic regression Pregibon (1981)'s Newton-step LOO is exact to
+first order at the converged MLE and is the standard textbook
+diagnostic since.  Cook (1977)'s
+``D_i = (ε̂_i^2 h_ii) / (p s^2 (1 − h_ii)^2)`` and Belsley-Kuh-Welsch
+(1980)'s `DFBETAS` are closed-form byproducts of the same hat matrix.
+
+**How it composes with the rest of the runtime.**
+
+* `Curator` — top-K influential-and-incorrect points are natural
+  relabelling candidates.
+* `Conformal` — Cook's distance and the conformal nonconformity score
+  measure the same "this point is unlike the rest" intuition; `Attributor`
+  *attributes* that score to specific examples.
+* `Robustifier` — `Attributor` returns exactly which points saturate
+  the ε-removal worst-case via top-K influence.
+* `Auditor` / AttestationLedger — every fit and counterfactual is
+  fingerprinted and replayable.
+* `Forecaster` — when a predictive set is contested, `Attributor`
+  identifies which historical observation caused the contested
+  interval.
+* `Aligner` — the DPO/IPO gradient of any preference pair is a valid
+  ``∇L_i``; `Attributor` identifies which preference pairs drive any
+  policy decision.
+* `Quantilizer` — the decision-flip certificate gives the policy
+  switch budget in concrete "number of training points away" units.
+* `Pretunist` — Pretunist's test-time-training step is itself a
+  weighted ERM; `Attributor` reports the *adaptation footprint*.
+
+**What it can't do (yet).**
+
+  * Not (yet) a billion-parameter influence kernel — the in-process
+    closed-form path tops out around 10⁴ × 10² (n × p); the TRAK
+    random-projection path scales further but is a *projection*, not
+    an exact ``H^{-1}`` solve.  GPU-backed influence is a follow-up
+    primitive.
+  * Not a counterfactual *cause*, only a counterfactual *correlate* —
+    influence is a sensitivity, not a causal effect.  Pair with
+    `Causal` / `Counterfactor` when you need the latter.
+  * Not (yet) a per-token attribution for transformer fine-tunes — the
+    `tracin_ideal` interface accepts the trajectory the caller chooses
+    to record; bit-exact reproducibility of a GPU SFT run is out of
+    scope for the in-process primitive.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
