@@ -84,6 +84,7 @@ agi/                # runtime + agent + reference coordinator
   tasks.py          # Task / TaskQueue / TaskRunner — scheduled work
   persistence.py    # checkpoint sessions to disk and rehydrate
   memory.py         # persistent JSONL memory store + namespacing (multi-tenant)
+  mentalist.py      # Mentalist — Bayesian theory-of-mind as a runtime primitive (Premack-Woodruff 1978; Baker-Saxe-Tenenbaum 2009 *Action understanding as inverse planning*; Baker-Jara-Ettinger-Saxe-Tenenbaum 2017; Foerster-Chen-Al-Shedivat-Whiteson-Abbeel-Mordatch 2018 *Learning with opponent-learning awareness*); Dirichlet posterior over latent state distributions per agent with closed-form online conjugate update; MaxEnt IRL (Ziebart-Maas-Bagnell-Dey 2008) recovering utility weights θ such that ``π(a | s) ∝ exp(β · Q_θ(s, a))`` best explains the observed action stream — closed-form gradient descent with ℓ₂ regularisation and provable convergence to the unique MaxEnt fixed point; online Bayesian rationality estimation (Gamma prior on inverse-temperature β driven by predictive log-likelihood); Beta-Bernoulli capability posteriors per (action, state) with Clopper-Pearson 1934 exact credible intervals; four predict selectors — MAP / softmax-Boltzmann / Thompson sampling with ``O(√(T log T))`` regret against the best fixed agent / Bayes posterior-mean averaging (Madigan-Raftery 1994) minimising log-loss in expectation; rollout simulation under the posterior-mean Boltzmann policy for value-of-information queries; nested theory of mind (``nested_belief(observer="bob", target="alice", …)`` returns Bob's posterior over Alice's policy from Bob's observations alone); McAllester 1999 PAC-Bayes bound on held-out predictive log-loss; identifiability report (Cao-Cohen-Szepesvári 2021) on rank/nullity/conditioning of the feature matrix — the dimensions of utility space the data cannot distinguish; Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequences + Maurer-Pontil 2009 empirical-Bernstein + Hoeffding 1963 LCB / UCB on every aggregate statistic; tamper-evident SHA-256 fingerprint chain (genesis ``mentalist.v1.genesis``) with optional HMAC-SHA-256 over every register / observe / predict / infer / report event so AttestationLedger replays the mind-modelling trace byte-for-byte; thread-safe re-entrant lock; pure stdlib — list-of-lists matrices, log-sum-exp Boltzmann softmax, hashlib SHA-256, no NumPy / SciPy; the *give-me-a-calibrated-Bayesian-belief-over-what-the-counterparty-believes-wants-and-will-do-next* primitive — the **theory-of-mind kernel** onto which every multi-agent primitive composes when the runtime must reason *about* another mind rather than merely transact *with* it — composes with Negotiator (Mentalist supplies the counterparty utility posterior; Negotiator allocates fairly against it), Coalition (per-member Mentalist policy posteriors feed Shapley-value estimation), Mechanism / Persuader (both need a model of the receiver's utility — Mentalist supplies a Bayesian one from observed behaviour), Diplomat (cheap-talk inference reads Mentalist's nested belief over the other side's belief), Equilibrator (best-response dynamics use Mentalist's Boltzmann policy as opponent-action expectation), Intender (Intender learns the user's reward, Mentalist learns the *other agent's* reward — same MaxEnt IRL machinery, different reference frame), Aligner (deploy a Mentalist-predicted KL-budget against each modelled counterparty), Bandit / BayesOpt (Thompson sampling on Mentalist's posterior gives an opponent-model-aware exploration policy), DriftSentinel (per-step predictive log-likelihood is a martingale-difference under correct opponent modelling — CUSUM detects opponent-policy shifts), AttestationLedger (every register / observe / predict / infer event hash chains into the ledger), Coordinator (every Goal whose execution involves another mind routes through Mentalist — the coordination engine maintains a calibrated belief over what each counterparty believes, wants and will do, with anytime-valid receipts the compliance officer can sign before action)
   costs.py          # per-turn + cumulative token usage and $ tracking
   tools.py          # builtin tools: file, shell, web, memory (+ world auto-record)
   __main__.py       # CLI: python -m agi
@@ -4943,6 +4944,102 @@ rise as the agent learns.
     binarisation (e.g. `success = quality >= threshold`).
   * The cell discretisation is uniform.  Adaptive (KD-tree, BSP)
     discretisation is a natural extension and not yet shipped.
+
+## Mentalist — Bayesian theory-of-mind as a runtime primitive
+
+The multi-agent primitives in this runtime — `Negotiator`, `Coalition`,
+`Mechanism`, `Persuader`, `Diplomat`, `Equilibrator` — all assume the
+*other* parties have beliefs, desires, and intentions that can be
+reasoned about.  None of them, by design, maintains the actual
+probabilistic *model* of those mental states.  `Mentalist` is the
+runtime primitive that does.
+
+Theory of mind (Premack & Woodruff 1978) is the operation a debugger
+performs when guessing the test author's intent, the operation a
+negotiator performs when modelling the counterparty's reservation
+price, and the operation a coordination engine must perform whenever
+another agent's behaviour deviates from the prior.  Modern AI has
+rediscovered it under three names — *inverse RL* (Ziebart-Maas-
+Bagnell-Dey 2008), *Bayesian theory of mind* (Baker-Saxe-Tenenbaum
+2009; Baker-Jara-Ettinger-Saxe-Tenenbaum 2017), and *opponent
+modelling* (Foerster et al. 2018).
+
+```python
+>>> from agi import Mentalist, MentalistConfig
+>>> m = Mentalist(MentalistConfig(rng_seed=1))
+>>> m.register_agent("alice",
+...                  states=("low", "mid", "high"),
+...                  actions=("pass", "bid"),
+...                  outcomes=("win", "lose"))
+>>> for _ in range(20):
+...     m.observe("alice", state="high", action="bid", reward=1.0, outcome="win")
+...     m.observe("alice", state="low",  action="pass", reward=0.0, outcome="lose")
+>>> m.predict("alice", state="high")
+{'pass': 0.04, 'bid': 0.96}
+>>> m.infer_desire("alice")
+{'win': 7.31, 'lose': -7.31}
+>>> bound = m.pac_bayes_bound("alice")
+>>> bound.upper_bound
+1.34  # Catoni-style PAC-Bayes upper bound on log-loss
+```
+
+What `Mentalist` ships:
+
+  * **Bayesian belief tracking** — Dirichlet posteriors over latent
+    state distributions; online conjugate updates.
+  * **MaxEnt inverse RL** (Ziebart 2010 §3.4) — closed-form gradient
+    descent on per-outcome utility weights, with full-action-space
+    policy evaluation so single-action histories still produce signal.
+  * **Bayesian rationality estimation** — Gamma posterior on the
+    Boltzmann inverse-temperature ``β``; an agent that always picks
+    the utility-maximising action drives ``β → ∞``, one that picks
+    uniformly drives ``β → 0``.
+  * **Capability posteriors** — Beta-Bernoulli on per-(state, action)
+    success rates; ``confidence()`` returns Clopper-Pearson (1934)
+    exact credible intervals.
+  * **Four prediction methods** — `map`, `softmax` (Boltzmann-rational),
+    `thompson` (sample-and-greedy with O(√T log T) regret), and
+    `bayes_avg` (posterior-weighted mixture over Thompson samples).
+  * **Simulation rollouts** — anytime forecasts of the agent's
+    expected (state, action) trajectory under the posterior-mean policy.
+  * **Nested theory of mind** — `nested_belief(observer, target, state)`
+    returns the observer's posterior over the target's next action;
+    the recursive ``ToM_k`` of Gmytrasiewicz-Doshi 2005.
+  * **PAC-Bayes prediction certificate** (Catoni 2007) — closed-form
+    upper bound on the policy's expected log-loss, with explicit
+    KL-to-prior and sample-size dependence.
+  * **Identifiability report** — equivalence classes of outcomes that
+    are *empirically indistinguishable* on the observed data; the
+    runtime knows when its IRL is underdetermined.
+  * **SHA-256 chain certificate** — every registration, observation,
+    inference and prediction is folded into a tamper-evident chain;
+    replaying the same observations against the same RNG seed
+    reproduces the certificate byte-for-byte.
+  * **Pure stdlib** — no NumPy, no Torch, no SciPy.
+
+Composition with the rest of the runtime:
+
+  * Pass `mentalist.infer_desire(id)` as the `preferences` argument
+    to `Negotiator` / `Mechanism` — the bargaining now runs against
+    the runtime's *recovered* model of the counterparty.
+  * `Persuader` consumes `mentalist.predict` distributions to score
+    persuasive messages by expected belief-shift.
+  * `Bandit` queries about a *known agent* can be routed through
+    `Mentalist.predict(..., method=THOMPSON)` for a calibrated
+    explanation along with the recommendation.
+  * `Abductor` picks the model *family*; `Mentalist` picks the model
+    *parameters* — natural staged inference.
+
+Limitations honestly stated:
+
+  * Default state/action/outcome spaces are *finite and discrete*.
+    Continuous spaces require discretisation via `Sketcher` /
+    `Topologist` before being fed in.
+  * The agent is assumed to be ε-Boltzmann-rational.  An adversary that
+    deliberately randomises against the recovered utility is identified
+    as ``β → 0`` but not exploited beyond that.
+  * Nested ToM beyond depth 2 is currently expensive (``O(|A|^k)``) and
+    requires composition with `Sampler` for posterior marginalisation.
 
 ## HTTP / SSE surface
 
