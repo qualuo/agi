@@ -84,6 +84,7 @@ agi/                # runtime + agent + reference coordinator
   tasks.py          # Task / TaskQueue / TaskRunner — scheduled work
   persistence.py    # checkpoint sessions to disk and rehydrate
   memory.py         # persistent JSONL memory store + namespacing (multi-tenant)
+  imaginator.py     # Imaginator — learned-world-model rollouts as a runtime primitive (Sutton 1990 *Dyna*; Kearns-Singh 2002 *Near-Optimal RL in Polynomial Time* — simulation lemma ``|V^π_M̂ − V^π_M| ≤ (γ/(1−γ)²) ε``; Strehl-Littman-Wiewiora 2009 PAC-MDP with sample-complexity ``O((SA/ε²(1−γ)⁴)·log(SAδ⁻¹))``; Strens 2000 / Osband-Russo-Van Roy 2013 PSRL with Bayesian regret ``O(τ √(SAT log T))``; Auer-Jaksch-Ortner 2010 UCRL2; Deisenroth-Rasmussen 2011 PILCO moment-matching; Janner-Fu-Zhang-Levine 2019 *When to Trust Your Model* short-horizon-rollout argument; Hafner-Lillicrap-Ba-Norouzi 2020 DreamerV3 imagined-trajectory policy optimisation); two conjugate dynamics families — discrete-state Dirichlet-multinomial transition + Normal-Gamma reward with closed-form Bayesian updates and Student-t reward predictive, and continuous-state matrix-normal-inverse-Wishart linear-Gaussian with Cholesky-via-Lentz analytic posterior mean dynamics ``[A | B]`` and per-horizon closed-form moment propagation; three rollout-sampling selectors — posterior_mean / Thompson (PSRL — one transition matrix per trajectory) / Bayes-averaged (Madigan-Raftery 1994 BMA over n_models posterior samples); imagine() bundles Monte-Carlo expected-return + std + Maurer-Pontil 2009 empirical-Bernstein LCB/UCB + Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequence + return quantiles + per-horizon state quantiles + full trajectories; value_iteration() — closed-form DP on posterior-mean transition/reward; thompson_policy() — PSRL one-sample plan-act-repeat; pac_value_bound() — Kearns-Singh simulation-lemma PAC bound composed with per-(s,a) Hoeffding transition radius; required_samples_for_pac() — invert PAC bound to Strehl-Littman-Wiewiora sample complexity; bayes_average_value() — Bayesian Model Averaging value estimate over n_models posterior dynamics; moment_rollout() — PILCO closed-form Σ_{h+1} = A Σ_h Aᵀ + Q linear-Gaussian moment propagation; identifiability_report() — Cao-Cohen-Szepesvári 2021 under-observed (s,a) pairs and per-pair effective Dirichlet concentration; pit_calibration() — Massey 1951 one-sample Kolmogorov-Smirnov test on probability-integral-transform of one-step rewards under Student-t predictive (Stephens 1970 asymptotic correction); tamper-evident SHA-256 fingerprint chain (genesis ``agi.imaginator.v1\x00 + secret_key``) with optional HMAC-SHA-256 over every register / observe / imagine / plan / certify event so AttestationLedger replays the imagined trajectory byte-for-byte from observation stream + RNG seed; export_state()/import_state() round-trip byte-identical chain head; thread-safe re-entrant lock; pure stdlib — list-of-lists matrices, Cholesky-via-Lentz solver, Marsaglia-Tsang gamma draws, hashlib SHA-256, no NumPy / SciPy / PyTorch; the *learn-a-dynamics-model-from-observed-transitions-imagine-with-calibrated-bounds-and-emit-a-replay-verifiable-receipt* primitive — the **model-based-RL inner loop** as a runtime primitive that lets a coordination engine route every Goal whose execution requires reasoning about future world states through `imagine → certify → act` with anytime-valid uncertainty bounds the compliance officer can sign before action — composes with Searcher (Searcher's tree search runs over Imaginator's posterior-predictive successor enumerator), ActiveInferencer (Imaginator supplies the generative model the EFE minimisation requires), Quantilizer (Imaginator.return_quantiles IS the distribution Quantilizer thresholds on — deploy the policy whose imagined return is in the top q-quantile), Distiller (distil the value_iteration policy into an amortised neural / linear policy), Planner (Imaginator's posterior-mean transition matrix is a PDDL-compilable operator schema; Planner solves SAT with the MAP transitions), DriftSentinel (per-step log-loss of one-step predictions is a martingale-difference under correct dynamics; CUSUM flags world drift), Bandit / BayesOpt (Thompson-sampled value is a cheap proxy oracle for hyperparameter search), Curator (Imaginator's identifiability report identifies under-observed (s,a) pairs Curator targets in the next curriculum batch), AttestationLedger (every register/observe/imagine/plan/certify event hash-chains into the ledger), Coordinator (every Goal whose execution requires reasoning over future world states routes through Imaginator — the coordination engine no longer hand-writes the dynamics function; it observes a few real transitions, registers them, and queries imagined value with calibrated uncertainty bounds the compliance officer can sign before action)
   mentalist.py      # Mentalist — Bayesian theory-of-mind as a runtime primitive (Premack-Woodruff 1978; Baker-Saxe-Tenenbaum 2009 *Action understanding as inverse planning*; Baker-Jara-Ettinger-Saxe-Tenenbaum 2017; Foerster-Chen-Al-Shedivat-Whiteson-Abbeel-Mordatch 2018 *Learning with opponent-learning awareness*); Dirichlet posterior over latent state distributions per agent with closed-form online conjugate update; MaxEnt IRL (Ziebart-Maas-Bagnell-Dey 2008) recovering utility weights θ such that ``π(a | s) ∝ exp(β · Q_θ(s, a))`` best explains the observed action stream — closed-form gradient descent with ℓ₂ regularisation and provable convergence to the unique MaxEnt fixed point; online Bayesian rationality estimation (Gamma prior on inverse-temperature β driven by predictive log-likelihood); Beta-Bernoulli capability posteriors per (action, state) with Clopper-Pearson 1934 exact credible intervals; four predict selectors — MAP / softmax-Boltzmann / Thompson sampling with ``O(√(T log T))`` regret against the best fixed agent / Bayes posterior-mean averaging (Madigan-Raftery 1994) minimising log-loss in expectation; rollout simulation under the posterior-mean Boltzmann policy for value-of-information queries; nested theory of mind (``nested_belief(observer="bob", target="alice", …)`` returns Bob's posterior over Alice's policy from Bob's observations alone); McAllester 1999 PAC-Bayes bound on held-out predictive log-loss; identifiability report (Cao-Cohen-Szepesvári 2021) on rank/nullity/conditioning of the feature matrix — the dimensions of utility space the data cannot distinguish; Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequences + Maurer-Pontil 2009 empirical-Bernstein + Hoeffding 1963 LCB / UCB on every aggregate statistic; tamper-evident SHA-256 fingerprint chain (genesis ``mentalist.v1.genesis``) with optional HMAC-SHA-256 over every register / observe / predict / infer / report event so AttestationLedger replays the mind-modelling trace byte-for-byte; thread-safe re-entrant lock; pure stdlib — list-of-lists matrices, log-sum-exp Boltzmann softmax, hashlib SHA-256, no NumPy / SciPy; the *give-me-a-calibrated-Bayesian-belief-over-what-the-counterparty-believes-wants-and-will-do-next* primitive — the **theory-of-mind kernel** onto which every multi-agent primitive composes when the runtime must reason *about* another mind rather than merely transact *with* it — composes with Negotiator (Mentalist supplies the counterparty utility posterior; Negotiator allocates fairly against it), Coalition (per-member Mentalist policy posteriors feed Shapley-value estimation), Mechanism / Persuader (both need a model of the receiver's utility — Mentalist supplies a Bayesian one from observed behaviour), Diplomat (cheap-talk inference reads Mentalist's nested belief over the other side's belief), Equilibrator (best-response dynamics use Mentalist's Boltzmann policy as opponent-action expectation), Intender (Intender learns the user's reward, Mentalist learns the *other agent's* reward — same MaxEnt IRL machinery, different reference frame), Aligner (deploy a Mentalist-predicted KL-budget against each modelled counterparty), Bandit / BayesOpt (Thompson sampling on Mentalist's posterior gives an opponent-model-aware exploration policy), DriftSentinel (per-step predictive log-likelihood is a martingale-difference under correct opponent modelling — CUSUM detects opponent-policy shifts), AttestationLedger (every register / observe / predict / infer event hash chains into the ledger), Coordinator (every Goal whose execution involves another mind routes through Mentalist — the coordination engine maintains a calibrated belief over what each counterparty believes, wants and will do, with anytime-valid receipts the compliance officer can sign before action)
   costs.py          # per-turn + cumulative token usage and $ tracking
   tools.py          # builtin tools: file, shell, web, memory (+ world auto-record)
@@ -5040,6 +5041,195 @@ Limitations honestly stated:
     as ``β → 0`` but not exploited beyond that.
   * Nested ToM beyond depth 2 is currently expensive (``O(|A|^k)``) and
     requires composition with `Sampler` for posterior marginalisation.
+
+## Imaginator — learned-world-model rollouts as a runtime primitive
+
+Every primitive in this runtime that *plans* eventually faces the same
+problem: it has to reason about *what happens next* before it commits real
+cost. `Searcher` runs anytime certified tree search over a *caller-supplied*
+successor enumerator. `ActiveInferencer` reduces expected free energy over
+a *caller-supplied* generative model. `Planner` compiles a *caller-supplied*
+PDDL operator schema. In every case the user hands over a dynamics function
+and trusts it.
+
+`Imaginator` is the primitive that **learns** that dynamics function from
+observed transitions, **bounds** the error of every imagined trajectory, and
+emits a **tamper-evident receipt** for every imagined rollout. It is the
+**model-based-RL inner loop** as a runtime primitive a coordination engine
+can register, drive, and audit.
+
+```python
+from agi.imaginator import Imaginator, ImaginatorConfig
+
+im = Imaginator(ImaginatorConfig(family="categorical", discount=0.9))
+im.register_env("supply", states=("ok","stockout"), actions=("ship","wait"))
+
+for s, a, s_next, r in observed_transitions():
+    im.observe("supply", s, a, s_next, r)
+
+plan = im.value_iteration("supply", horizon=30, discount=0.9)
+roll = im.imagine("supply", state="ok",
+                  policy=lambda s: plan.policy[s],
+                  horizon=20, samples=128, method="thompson")
+print(roll.expected_return, roll.value_lcb, roll.value_ucb)  # Maurer-Pontil 95% CI
+print(roll.hrms_lcb,        roll.hrms_ucb)                   # anytime-valid CI
+
+pac = im.pac_value_bound("supply", policy=plan.policy, delta=0.05, horizon=20)
+print(pac.epsilon, pac.min_observations)                     # Kearns-Singh PAC
+```
+
+### Dynamics families shipped
+
+  * **`"categorical"`** — discrete-state, discrete-action MDP with
+    Dirichlet-multinomial conjugate posterior on per-(state, action)
+    successor distributions and Normal-Gamma conjugate posterior on
+    per-(state, action) rewards. Closed-form Bayesian updates; the
+    posterior predictive over next state is the Dirichlet-Multinomial
+    mean ``α[s'] / Σ α[s']``. This is the **Bayesian R-MAX** family
+    (Strehl-Littman-Wiewiora 2009; Auer-Jaksch-Ortner 2010 UCRL2), with
+    optimism-under-uncertainty delivered via Thompson-sampled transition
+    matrices (Strens 2000 / Osband-Russo-Van Roy 2013 *PSRL*) with
+    Bayesian-regret bound ``O(τ √(SAT log T))`` where τ is the diameter.
+
+  * **`"linear_gaussian"`** — continuous-state linear dynamics
+    ``s_{t+1} = A s_t + B a_t + ε_t`` with matrix-normal-inverse-Wishart
+    conjugate prior on ``[A | B]`` and ``Σ``. Closed-form online
+    sufficient-statistic updates; closed-form moment-matching predictive
+    ``N(μ, σ²)`` at every horizon. This is the **PILCO** family
+    (Deisenroth-Rasmussen 2011) with the closed-form moment propagation
+    PILCO required a Gaussian process for, here delivered by a Bayesian
+    linear model whose epistemic uncertainty closes in expectation as
+    ``n → ∞``.
+
+### Mathematical and algorithmic roots
+
+  * **Sutton 1990 *Dyna*** — real and imagined transitions update the
+    same value function; one observation buys both a planning step and a
+    learning step.
+
+  * **Kearns-Singh 2002** — the *simulation lemma*
+    ``|V^π_M̂ − V^π_M| ≤ (γ/(1−γ)²) ε`` whenever ``M̂`` is ``ε``-accurate
+    in transition + reward. Backbone of `pac_value_bound`.
+
+  * **Strehl-Littman-Wiewiora 2009 PAC-MDP** — sample complexity
+    ``O((SA / ε²(1−γ)⁴) · log(SAδ⁻¹))`` exactly the formula
+    `required_samples_for_pac` returns.
+
+  * **Janner-Fu-Zhang-Levine 2019 *When to Trust Your Model*** — the
+    short-horizon-rollout argument: imagined trajectories are accurate
+    at small ``h``, biased at large ``h``; `trajectory_quantiles` expose
+    the growing predictive variance that justifies the horizon cap.
+
+  * **Hafner-Lillicrap-Ba-Norouzi 2020 *Dream to Control*** — DreamerV3
+    treats imagined trajectories as the policy-optimisation surface;
+    Imaginator delivers the trajectories with calibrated bounds the
+    coordinator reads *before* committing.
+
+  * **Maurer-Pontil 2009** empirical-Bernstein bound on Monte Carlo
+    return; **Howard-Ramdas-McAuliffe-Sekhon 2021** anytime-valid
+    confidence sequences; **Massey 1951** Kolmogorov-Smirnov test for
+    PIT calibration (asymptotic distribution via the Stephens 1970
+    correction).
+
+### What it ships
+
+  * `imagine(env, state, policy, horizon, samples, method)` — Monte
+    Carlo trajectories from the posterior predictive; bundles
+    `expected_return`, `return_std`, Maurer-Pontil `value_lcb/ucb`,
+    HRMS anytime-valid `hrms_lcb/ucb`, return quantiles, full
+    trajectories, per-step state quantiles, and a chain `fingerprint_hash`.
+  * `value_iteration(env, horizon, discount, tol)` — closed-form DP
+    planning on the posterior-mean transition / reward.
+  * `thompson_policy(env, horizon, discount)` — PSRL: draw one
+    transition matrix from the Dirichlet posterior, return the
+    value-iteration policy for that draw.
+  * `pac_value_bound(env, policy, delta, horizon)` — Kearns-Singh
+    simulation-lemma PAC bound on the policy-value estimation error.
+  * `required_samples_for_pac(env, epsilon, delta)` — invert the PAC
+    bound: minimum ``min_n`` per reachable (s, a) to achieve a target ε.
+  * `bayes_average_value(env, policy, horizon, samples, n_models)` —
+    Bayesian Model Averaging (Madigan-Raftery 1994) value estimate.
+  * `moment_rollout(env, state, policy, horizon, noise)` — closed-form
+    linear-Gaussian moment propagation (PILCO).
+  * `identifiability_report(env, min_observations)` — flags
+    under-observed (s, a) pairs and reports effective Dirichlet
+    concentration per pair (Cao-Cohen-Szepesvári 2021).
+  * `pit_calibration(env)` — one-sample KS test on the PIT of one-step
+    rewards under the Student-t reward predictive.
+  * Tamper-evident SHA-256 fingerprint chain (genesis seed
+    `"agi.imaginator.v1\x00" + secret_key`) with optional HMAC-SHA-256
+    over every register / observe / imagine / value / certify event so
+    `AttestationLedger.verify` replays the imagined trajectory
+    byte-for-byte from the same observation stream + RNG seed.
+  * `export_state()` / `import_state(snap)` — full posterior snapshot
+    round-trips byte-identical chain head.
+  * Pure stdlib — list-of-lists matrices, Cholesky-via-Lentz solver,
+    Marsaglia-Tsang gamma draws, hashlib SHA-256. No NumPy, no SciPy,
+    no PyTorch.
+
+### How it composes with the rest of the runtime
+
+  * **`Searcher`** — Imaginator is *the* successor enumerator Searcher
+    accepts. Searcher's tree search runs over imagined transitions; the
+    cost-of-evaluation Searcher trades off is Imaginator's per-sample
+    rollout time.
+  * **`ActiveInferencer`** — Imaginator supplies the generative model
+    (state-transition + observation likelihood) that the Active Inference
+    primitive's expected-free-energy minimisation requires.
+  * **`Quantilizer`** — Imaginator's `return_quantiles` *is* the
+    distribution Quantilizer thresholds on. "Deploy the policy whose
+    imagined return is in the top ``q`` quantile of the posterior over
+    dynamics."
+  * **`Distiller`** — distil the value-iteration policy returned by
+    `Imaginator.value_iteration` into an amortised neural / linear policy.
+  * **`Planner`** — Imaginator's posterior-mean transition matrix is a
+    PDDL-compilable operator schema; Planner reads it and solves SAT with
+    the deterministic mode of Imaginator's MAP transitions.
+  * **`DriftSentinel`** — per-step log-loss of one-step predictions is a
+    martingale-difference under correct dynamics; DriftSentinel runs a
+    CUSUM and flags world drift in real time.
+  * **`Bandit` / `BayesOpt`** — Thompson-sampled value from Imaginator is
+    a cheap proxy oracle for hyperparameter / arm selection.
+  * **`Curator`** — Imaginator's identifiability report identifies (state,
+    action) pairs that are still under-observed; Curator targets them in
+    its next curriculum batch.
+  * **`AttestationLedger`** — every register / observe / imagine / value /
+    certify event chain-hashes into the ledger; a compliance officer
+    replays byte-for-byte from the observation stream + RNG seed.
+  * **`Coordinator`** — every Goal whose execution requires reasoning
+    over future world states routes through Imaginator. The coordination
+    engine no longer hand-writes the dynamics function; it observes a few
+    real transitions, registers them with Imaginator, and queries imagined
+    value with calibrated uncertainty bounds the compliance officer can
+    sign before action.
+
+### Investor framing
+
+Imaginator is the runtime's **imagination kernel**. Every prior primitive
+processes the present. Imaginator processes the future with calibrated
+uncertainty and a receipt the compliance officer can sign before money
+moves. This is the line between *"we run AI"* and *"we run AI that reasons
+about consequences before committing them."* Pair with `Quantilizer` for
+safety-bounded deployment, `Searcher` for tree-search over imagined
+futures, and `AttestationLedger` for cryptographic replay — the
+**model-based-RL inner loop**, delivered as a runtime primitive a
+coordination engine can drive.
+
+### What it deliberately doesn't claim
+
+  * Not a frontier dynamics learner — no neural networks, no transformer
+    world model. The two model families shipped (Dirichlet-multinomial
+    categorical and matrix-normal-inverse-Wishart linear-Gaussian) are
+    the *conjugate* ones that admit closed-form Bayesian updates and
+    provable PAC bounds.
+  * Not online closed-loop control — Imaginator imagines on demand, but
+    the coordinator decides when to act. Composition with a real-time
+    controller is the caller's responsibility.
+  * Not partial-observability — the categorical family assumes the
+    observed state *is* the latent state. Composition with `Filterer` for
+    the POMDP case is the recommended pattern; the linear-Gaussian family
+    natively supports observation noise but the latent-state dimensionality
+    must match the action space.
 
 ## HTTP / SSE surface
 
