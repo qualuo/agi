@@ -84,6 +84,7 @@ agi/                # runtime + agent + reference coordinator
   tasks.py          # Task / TaskQueue / TaskRunner — scheduled work
   persistence.py    # checkpoint sessions to disk and rehydrate
   memory.py         # persistent JSONL memory store + namespacing (multi-tenant)
+  reconciler.py     # Reconciler — Aumann agreement as a runtime primitive (Aumann 1976 *Agreements on Agreed* — two Bayesians with common-knowledge posteriors *must* agree; Geanakoplos-Polemarchakis 1982 *We Can't Disagree Forever* — finite-time convergence of the Aumann iteration on finite state spaces; Stone 1961 linear opinion pool ``q(·) = Σ_i w_i p_i(·)`` — externally-Bayesian when weights are belief-independent (Genest-McConway 1990); Bordley 1982 logarithmic opinion pool ``q(·) ∝ Π_i p_i(·)^{w_i}`` — log-linear aggregation, the maximum-entropy combination subject to matching each expert's KL-projection of the consensus (Genest-Zidek 1986); Bregman 1967 KL-barycenter / Cuturi-Doucet 2014 — iterative fixed-point minimum-divergence consensus; four aggregation methods — linear / logarithmic / aumann (iterative cognitive-economy approximation with round-cap returning closest-to-consensus KL-barycenter when cap fires) / kl_barycenter; per-source KL gap ``KL(p_i ‖ q)`` quantifies how surprising each expert's belief looks under the consensus — the largest gap names the *outlier* the coordinator should investigate; Massey 1951 one-sample Kolmogorov-Smirnov test on probability-integral-transform of realised outcomes per source with Stephens 1970 asymptotic correction; closed-form average log-loss per source for binary-outcome calibration where the PIT test is uninformative; Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequence on the per-outcome consensus mass; Maurer-Pontil 2009 empirical-Bernstein on consensus stability; inverse-Herfindahl-Hirschman effective number of experts ``1 / Σ w_i²`` — equals K for K equal-weight experts, falls to 1 when one source dominates; identifiability_report flags topics where every source assigns zero mass to some outcome (consensus cannot distinguish that outcome from a zero-mass alternative) and reports the effective number of independent contributors; tamper-evident SHA-256 fingerprint chain (genesis ``agi.reconciler.v1\x00 + secret_key``) with optional HMAC-SHA-256 over every register / contribute / consensus / calibration event so AttestationLedger replays the consensus byte-for-byte; export_state() / import_state() round-trip byte-identical chain head; thread-safe re-entrant lock; pure stdlib — list-of-lists arithmetic, log-sum-exp numerically-stable softmax, hashlib SHA-256, no NumPy / SciPy / PyTorch; the *aggregate-K-conflicting-posteriors-from-K-primitives-into-one-coherent-consensus-belief-with-a-replay-verifiable-receipt* primitive — the **consensus-belief kernel** onto which every primitive that emits a posterior composes when the runtime must reason from more than one source at once — composes with Bandit / BayesOpt / Imaginator / Forecaster / Predictor (each contributes its posterior to a Reconciler topic and the coordinator sees the calibrated consensus instead of any single primitive's belief), Auditor (Reconciler's per-source outlier KL is a candidate test statistic; Auditor BH-controls FDR across many simultaneous topics), DriftSentinel (running consensus stability is a martingale-difference under common knowledge; CUSUM flags contributor drift), Aligner (preferences over (topic, consensus) pairs become training data for the system's reward model), Mentalist (supplies the rationality posterior the coordinator weights each Mentalist-modelled counterparty's contribution by), Conformal (wraps the consensus pmf with a finite-sample prediction set), AttestationLedger (every register / contribute / consensus / calibration event hash-chains into the ledger), Coordinator (every Goal whose execution depends on more than one primitive's posterior routes through Reconciler — the coordination engine sees one calibrated belief plus the outlier name plus the anytime-valid CI plus the audit-chain head, instead of K conflicting posteriors)
   imaginator.py     # Imaginator — learned-world-model rollouts as a runtime primitive (Sutton 1990 *Dyna*; Kearns-Singh 2002 *Near-Optimal RL in Polynomial Time* — simulation lemma ``|V^π_M̂ − V^π_M| ≤ (γ/(1−γ)²) ε``; Strehl-Littman-Wiewiora 2009 PAC-MDP with sample-complexity ``O((SA/ε²(1−γ)⁴)·log(SAδ⁻¹))``; Strens 2000 / Osband-Russo-Van Roy 2013 PSRL with Bayesian regret ``O(τ √(SAT log T))``; Auer-Jaksch-Ortner 2010 UCRL2; Deisenroth-Rasmussen 2011 PILCO moment-matching; Janner-Fu-Zhang-Levine 2019 *When to Trust Your Model* short-horizon-rollout argument; Hafner-Lillicrap-Ba-Norouzi 2020 DreamerV3 imagined-trajectory policy optimisation); two conjugate dynamics families — discrete-state Dirichlet-multinomial transition + Normal-Gamma reward with closed-form Bayesian updates and Student-t reward predictive, and continuous-state matrix-normal-inverse-Wishart linear-Gaussian with Cholesky-via-Lentz analytic posterior mean dynamics ``[A | B]`` and per-horizon closed-form moment propagation; three rollout-sampling selectors — posterior_mean / Thompson (PSRL — one transition matrix per trajectory) / Bayes-averaged (Madigan-Raftery 1994 BMA over n_models posterior samples); imagine() bundles Monte-Carlo expected-return + std + Maurer-Pontil 2009 empirical-Bernstein LCB/UCB + Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequence + return quantiles + per-horizon state quantiles + full trajectories; value_iteration() — closed-form DP on posterior-mean transition/reward; thompson_policy() — PSRL one-sample plan-act-repeat; pac_value_bound() — Kearns-Singh simulation-lemma PAC bound composed with per-(s,a) Hoeffding transition radius; required_samples_for_pac() — invert PAC bound to Strehl-Littman-Wiewiora sample complexity; bayes_average_value() — Bayesian Model Averaging value estimate over n_models posterior dynamics; moment_rollout() — PILCO closed-form Σ_{h+1} = A Σ_h Aᵀ + Q linear-Gaussian moment propagation; identifiability_report() — Cao-Cohen-Szepesvári 2021 under-observed (s,a) pairs and per-pair effective Dirichlet concentration; pit_calibration() — Massey 1951 one-sample Kolmogorov-Smirnov test on probability-integral-transform of one-step rewards under Student-t predictive (Stephens 1970 asymptotic correction); tamper-evident SHA-256 fingerprint chain (genesis ``agi.imaginator.v1\x00 + secret_key``) with optional HMAC-SHA-256 over every register / observe / imagine / plan / certify event so AttestationLedger replays the imagined trajectory byte-for-byte from observation stream + RNG seed; export_state()/import_state() round-trip byte-identical chain head; thread-safe re-entrant lock; pure stdlib — list-of-lists matrices, Cholesky-via-Lentz solver, Marsaglia-Tsang gamma draws, hashlib SHA-256, no NumPy / SciPy / PyTorch; the *learn-a-dynamics-model-from-observed-transitions-imagine-with-calibrated-bounds-and-emit-a-replay-verifiable-receipt* primitive — the **model-based-RL inner loop** as a runtime primitive that lets a coordination engine route every Goal whose execution requires reasoning about future world states through `imagine → certify → act` with anytime-valid uncertainty bounds the compliance officer can sign before action — composes with Searcher (Searcher's tree search runs over Imaginator's posterior-predictive successor enumerator), ActiveInferencer (Imaginator supplies the generative model the EFE minimisation requires), Quantilizer (Imaginator.return_quantiles IS the distribution Quantilizer thresholds on — deploy the policy whose imagined return is in the top q-quantile), Distiller (distil the value_iteration policy into an amortised neural / linear policy), Planner (Imaginator's posterior-mean transition matrix is a PDDL-compilable operator schema; Planner solves SAT with the MAP transitions), DriftSentinel (per-step log-loss of one-step predictions is a martingale-difference under correct dynamics; CUSUM flags world drift), Bandit / BayesOpt (Thompson-sampled value is a cheap proxy oracle for hyperparameter search), Curator (Imaginator's identifiability report identifies under-observed (s,a) pairs Curator targets in the next curriculum batch), AttestationLedger (every register/observe/imagine/plan/certify event hash-chains into the ledger), Coordinator (every Goal whose execution requires reasoning over future world states routes through Imaginator — the coordination engine no longer hand-writes the dynamics function; it observes a few real transitions, registers them, and queries imagined value with calibrated uncertainty bounds the compliance officer can sign before action)
   mentalist.py      # Mentalist — Bayesian theory-of-mind as a runtime primitive (Premack-Woodruff 1978; Baker-Saxe-Tenenbaum 2009 *Action understanding as inverse planning*; Baker-Jara-Ettinger-Saxe-Tenenbaum 2017; Foerster-Chen-Al-Shedivat-Whiteson-Abbeel-Mordatch 2018 *Learning with opponent-learning awareness*); Dirichlet posterior over latent state distributions per agent with closed-form online conjugate update; MaxEnt IRL (Ziebart-Maas-Bagnell-Dey 2008) recovering utility weights θ such that ``π(a | s) ∝ exp(β · Q_θ(s, a))`` best explains the observed action stream — closed-form gradient descent with ℓ₂ regularisation and provable convergence to the unique MaxEnt fixed point; online Bayesian rationality estimation (Gamma prior on inverse-temperature β driven by predictive log-likelihood); Beta-Bernoulli capability posteriors per (action, state) with Clopper-Pearson 1934 exact credible intervals; four predict selectors — MAP / softmax-Boltzmann / Thompson sampling with ``O(√(T log T))`` regret against the best fixed agent / Bayes posterior-mean averaging (Madigan-Raftery 1994) minimising log-loss in expectation; rollout simulation under the posterior-mean Boltzmann policy for value-of-information queries; nested theory of mind (``nested_belief(observer="bob", target="alice", …)`` returns Bob's posterior over Alice's policy from Bob's observations alone); McAllester 1999 PAC-Bayes bound on held-out predictive log-loss; identifiability report (Cao-Cohen-Szepesvári 2021) on rank/nullity/conditioning of the feature matrix — the dimensions of utility space the data cannot distinguish; Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequences + Maurer-Pontil 2009 empirical-Bernstein + Hoeffding 1963 LCB / UCB on every aggregate statistic; tamper-evident SHA-256 fingerprint chain (genesis ``mentalist.v1.genesis``) with optional HMAC-SHA-256 over every register / observe / predict / infer / report event so AttestationLedger replays the mind-modelling trace byte-for-byte; thread-safe re-entrant lock; pure stdlib — list-of-lists matrices, log-sum-exp Boltzmann softmax, hashlib SHA-256, no NumPy / SciPy; the *give-me-a-calibrated-Bayesian-belief-over-what-the-counterparty-believes-wants-and-will-do-next* primitive — the **theory-of-mind kernel** onto which every multi-agent primitive composes when the runtime must reason *about* another mind rather than merely transact *with* it — composes with Negotiator (Mentalist supplies the counterparty utility posterior; Negotiator allocates fairly against it), Coalition (per-member Mentalist policy posteriors feed Shapley-value estimation), Mechanism / Persuader (both need a model of the receiver's utility — Mentalist supplies a Bayesian one from observed behaviour), Diplomat (cheap-talk inference reads Mentalist's nested belief over the other side's belief), Equilibrator (best-response dynamics use Mentalist's Boltzmann policy as opponent-action expectation), Intender (Intender learns the user's reward, Mentalist learns the *other agent's* reward — same MaxEnt IRL machinery, different reference frame), Aligner (deploy a Mentalist-predicted KL-budget against each modelled counterparty), Bandit / BayesOpt (Thompson sampling on Mentalist's posterior gives an opponent-model-aware exploration policy), DriftSentinel (per-step predictive log-likelihood is a martingale-difference under correct opponent modelling — CUSUM detects opponent-policy shifts), AttestationLedger (every register / observe / predict / infer event hash chains into the ledger), Coordinator (every Goal whose execution involves another mind routes through Mentalist — the coordination engine maintains a calibrated belief over what each counterparty believes, wants and will do, with anytime-valid receipts the compliance officer can sign before action)
   costs.py          # per-turn + cumulative token usage and $ tracking
@@ -5041,6 +5042,126 @@ Limitations honestly stated:
     as ``β → 0`` but not exploited beyond that.
   * Nested ToM beyond depth 2 is currently expensive (``O(|A|^k)``) and
     requires composition with `Sampler` for posterior marginalisation.
+
+## Reconciler — Aumann agreement as a runtime primitive
+
+Every primitive in this runtime that emits a posterior — `Bandit` over arms,
+`BayesOpt` over the optimum location, `Imaginator` over future returns,
+`Forecaster` over the next observation, `Mentalist` over a counterparty's
+utility — eventually produces output that the coordination engine has to
+*combine* with the output of some other primitive that estimates a related
+quantity. Without a principled aggregation step the coordinator picks one
+(loses the information in the others), or averages naively (loses the
+calibration of the most-certain one), or hand-tunes a weighted vote (loses
+any guarantee of optimality).
+
+`Reconciler` is the runtime's *bounded, anytime, certified, stdlib*
+version of that aggregation. It implements four pooling rules that
+together cover the literature on consensus belief aggregation.
+
+```python
+from agi.reconciler import Reconciler, ReconcilerConfig
+
+rec = Reconciler(ReconcilerConfig(method="aumann"))
+rec.register_topic("arm_a_wins", outcomes=("yes", "no"))
+rec.contribute("arm_a_wins", source="bandit",   belief={"yes": 0.70, "no": 0.30})
+rec.contribute("arm_a_wins", source="bayesopt", belief={"yes": 0.60, "no": 0.40})
+rec.contribute("arm_a_wins", source="psrl",     belief={"yes": 0.65, "no": 0.35})
+
+report = rec.consensus("arm_a_wins")
+print(report.consensus)            # {"yes": 0.65, "no": 0.35}
+print(report.outlier)              # ("bandit", 0.0056)
+print(report.converged, report.rounds)  # True, 17
+```
+
+### Aggregation methods shipped
+
+  * **`"linear"`** — Stone 1961 linear opinion pool
+    ``q(·) = Σ_i w_i p_i(·)``. Genest-McConway 1990 show this is the
+    *only* externally-Bayesian pool when the weights do not depend on
+    the experts' beliefs.
+  * **`"logarithmic"`** — Bordley 1982 log-linear pool
+    ``q(·) ∝ Π_i p_i(·)^{w_i}``. The maximum-entropy combination
+    subject to matching each expert's KL-projection of the consensus.
+  * **`"kl_barycenter"`** — Bregman 1967 right-KL barycenter that
+    minimises ``Σ_i w_i · KL(q ‖ p_i)``; the closed-form solution
+    coincides with the logarithmic pool.
+  * **`"aumann"`** — Geanakoplos-Polemarchakis 1982 iterative
+    Bayesian agreement. Each round every expert updates by averaging
+    with the current pool; on finite state spaces the iteration
+    provably reaches consensus in finitely many rounds. The
+    round-cap returns the closest-to-consensus KL-barycenter with
+    ``converged=False`` when fired.
+
+### What it ships
+
+  * `consensus(topic, method, weights)` — the consensus pmf plus
+    `per_source_kl`, `outlier`, `confidence_interval` (HRMS anytime-
+    valid CI per outcome), `effective_n_sources` (inverse Herfindahl-
+    Hirschman), `converged`/`rounds`, and `fingerprint_hash`.
+  * `calibration(topic, source)` — per-source Massey 1951 KS test on
+    PIT of realised outcomes plus closed-form average log-loss (for
+    binary topics where PIT is uninformative).
+  * `identifiability_report(topic)` — flags topics where every source
+    assigns zero mass to some outcome and reports the effective number
+    of independent contributors.
+  * Tamper-evident SHA-256 fingerprint chain with optional HMAC-SHA-256
+    over every register / contribute / consensus / calibration event so
+    `AttestationLedger.verify` replays the consensus byte-for-byte.
+  * `export_state()` / `import_state(snap)` round-trip byte-identical
+    chain head.
+  * Pure stdlib — list-of-lists arithmetic, log-sum-exp softmax, hashlib
+    SHA-256. No NumPy, no Torch.
+
+### How it composes with the rest of the runtime
+
+  * **`Bandit` / `BayesOpt` / `Imaginator` / `Forecaster` /
+    `Predictor`** — each contributes its posterior to a Reconciler
+    topic and the coordinator sees the calibrated consensus instead of
+    any single primitive's belief.
+  * **`Auditor`** — Reconciler's per-source outlier KL is a candidate
+    test statistic; Auditor BH-controls FDR across simultaneous topics.
+  * **`DriftSentinel`** — running consensus stability is a
+    martingale-difference under common knowledge; CUSUM flags
+    contributor drift.
+  * **`Aligner`** — preferences over (topic, consensus) pairs become
+    training data for the system's reward model.
+  * **`Mentalist`** — supplies the rationality posterior the
+    coordinator weights each Mentalist-modelled counterparty's
+    contribution by.
+  * **`Conformal`** — wraps the consensus pmf with a finite-sample
+    prediction set.
+  * **`Coordinator`** — every Goal whose execution depends on more
+    than one primitive's posterior routes through Reconciler — the
+    coordination engine sees one calibrated belief plus the outlier
+    name plus the anytime-valid CI plus the audit-chain head, instead
+    of K conflicting posteriors.
+
+### Investor framing
+
+Reconciler is the **consensus-belief kernel**. Every primitive
+processes one signal; Reconciler processes the ensemble.  Pair every
+Goal whose execution depends on more than one source through
+Reconciler and the coordination engine gets *one* calibrated belief
+plus *one* outlier name plus *one* receipt the compliance officer can
+sign, instead of K conflicting posteriors. This is the line between
+*"we run K AI primitives"* and *"we run K AI primitives and reconcile
+their beliefs with provable Bayesian agreement before action."*
+
+### What it deliberately doesn't claim
+
+  * The Aumann iteration shipped here is the *cognitive-economy
+    approximation* (Hanson 2003) — each expert broadcasts the
+    posterior pmf rather than the partition cell containing the truth.
+    The convergence + agreement properties Aumann 1976 proved on the
+    full formulation hold in finite-step approximation here, but the
+    common-prior assumption is not enforced.
+  * Calibration via the PIT KS test is uninformative for binary
+    outcomes; for binary topics use the log-loss field instead.
+  * The primitive aggregates pmfs over a finite outcome set. For
+    continuous posteriors (densities) discretise first via
+    `Conformal` or use the `Hedger` universal-experts primitive for
+    online sequence prediction.
 
 ## Imaginator — learned-world-model rollouts as a runtime primitive
 
