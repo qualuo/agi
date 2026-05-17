@@ -310,7 +310,8 @@ KNOWN_ALGORITHMS: Tuple[str, ...] = (
 UNARY_ALGORITHMS: Tuple[str, ...] = (ALG_KTO,)
 
 # Algorithms that *do not* need a reference policy log-prob.
-REFERENCE_FREE_ALGORITHMS: Tuple[str, ...] = (ALG_SIMPO,)
+# ORPO is reference-free by design (Hong-Lee-Thorne 2024).
+REFERENCE_FREE_ALGORITHMS: Tuple[str, ...] = (ALG_SIMPO, ALG_ORPO)
 
 MODEL_LINEAR = "linear"
 MODEL_BILINEAR = "bilinear"

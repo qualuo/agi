@@ -228,12 +228,10 @@ class TestObservation(unittest.TestCase):
         self.assertEqual(a.state()["n_observations"], 1)
 
     def test_orpo_ignores_ref_logprobs(self):
-        # ORPO is in default REFERENCE_FREE_ALGORITHMS? Actually it's not
-        # in that constant — it accepts but doesn't require ref. Check:
-        # ORPO is not in REFERENCE_FREE_ALGORITHMS so it requires refs.
+        # ORPO (Hong-Lee-Thorne 2024) is reference-free by design.
         a = orpo_aligner(seed=0)
-        with self.assertRaises(InvalidPreference):
-            a.observe_pair(prompt="q", winner="a", loser="b")
+        a.observe_pair(prompt="q", winner="a", loser="b")
+        self.assertEqual(a.state()["n_observations"], 1)
 
     def test_observe_kind_accepts_preference_instance(self):
         a = dpo_aligner(seed=0)
@@ -732,6 +730,7 @@ class TestConvenience(unittest.TestCase):
 
     def test_reference_free_alg_set(self):
         self.assertIn(ALG_SIMPO, REFERENCE_FREE_ALGORITHMS)
+        self.assertIn(ALG_ORPO, REFERENCE_FREE_ALGORITHMS)
         self.assertNotIn(ALG_DPO, REFERENCE_FREE_ALGORITHMS)
 
 
