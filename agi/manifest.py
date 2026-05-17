@@ -1148,6 +1148,21 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
           tags=(TAG_STREAMING, TAG_ANYTIME, TAG_CALIBRATION),
           certificate=CERT_ANYTIME,
           composes_with=("forecaster", "auditor", "selfeval")),
+    _spec(name="debater", kind=KIND_SAFETY,
+          summary="Multi-agent debate — Irving / Barnes-Christiano / Brown-Cohen / Hubinger / Khan-Hughes / Condorcet jury, with PAC truth-win-rate LCB + Nash exploitability check.",
+          tags=(TAG_MULTI_AGENT, TAG_PAC, TAG_ANYTIME, TAG_REPLAY, TAG_SAFETY),
+          certificate=CERT_PAC,
+          composes_with=("mentalist", "truthserum", "reconciler", "equilibrator",
+                         "arbiter", "auditor", "strategist", "attest"),
+          demo_path="examples/debater_demo.py",
+          references=(
+              "Irving-Christiano-Amodei 2018",
+              "Barnes-Christiano 2020",
+              "Brown-Cohen-Irving-Piliouras 2023",
+              "Hubinger 2020",
+              "Khan-Hughes 2024",
+              "Boland 1989",
+          )),
 
     # --- optimisation ---------------------------------------------------
     _spec(name="annealer", kind=KIND_OPTIMIZATION,
