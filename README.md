@@ -66,6 +66,7 @@ agi/                # runtime + agent + reference coordinator
   ranker.py         # Ranker — paired-comparison and partial-ranking inference as a runtime primitive (Bradley-Terry 1952 MM and MAP (Hunter 2004) / Plackett-Luce 1975 MM / Thurstone-Mosteller Case-V MM / Elo 1978 / Glicko 1995 / Glicko-2 2012 with Illinois bracketing on the volatility / TrueSkill 2007 with rectified-Gaussian moment matching and draw-margin support); Tarjan 1972 strongly-connected-component identifiability diagnostic; Hajek-Oh-Xu 2014 ℓ∞ top-K sample-complexity bound; anytime-valid confidence intervals via Hoeffding 1963, Maurer-Pontil 2009 empirical-Bernstein, and Howard-Ramdas-McAuliffe-Sekhon 2021 time-uniform CS on every pairwise win-rate; Fisher-information / Gaussian-prior Hessian standard errors; McFadden pseudo-R²; PAC-certified top-K decision; replay-deterministic state(); tamper-evident SHA-256 fingerprint chaining every observation; Kendall-τ and Spearman-ρ rank correlations; pure stdlib — Beasley-Springer-Moro inverse-Φ, list-of-lists Cholesky on the Fisher information, iterative Tarjan SCC; the *rank-N-candidates-with-confidence-from-pairwise-judgments* primitive — the relative-information dual of Bandit (cumulative regret) and Arbiter (PAC best-arm) — composes with Arbiter (full-ranking dual of single-best-arm PAC), Bandit (dueling bandits — Yue-Joachims 2009; Komiyama et al. 2015), Strategist (pairwise lift CI as a strategy-comparison primitive), Diplomat (rank the players in the extensive-form game), TruthSerum (use judge trust-scores as Ranker observations), Auditor (BH/FDR over many pairwise tests), DriftSentinel (forget(item, halflife) when a player's CUSUM trips), Refuter (falsify Tversky 1969 stochastic-transitivity claims), PrivacyAccountant (DP-private W_ab releases, Hay-Rastogi-Miklau-Suciu 2009), AttestationLedger (every top-K decision hashes into the chain), Forecaster (PIT-calibrate the predicted win-probability stream)
   bayesopt.py       # BayesOpt — Bayesian optimisation as a runtime primitive (Gaussian-process surrogate with stationary kernels — squared-exponential / Matérn-5/2 / Matérn-3/2 with per-dimension ARD lengthscales (MacKay 1994), Cholesky-solved posterior mean and variance (Rasmussen-Williams 2006), analytic input-gradients for gradient-ascent acquisition refinement; GP-UCB (Srinivas-Krause-Kakade-Seeger 2010 — anytime cumulative regret R_T ≤ √(C₁ T β_T γ_T), C₁ = 8 / log(1 + σ_f²/σ²)) / Expected Improvement (Močkus 1974; Jones-Schonlau-Welch 1998 — closed-form EI(x) = (μ−f*)Φ(z) + σφ(z) with Bull 2011 ``O(n^{-ν/d} log^α n)`` simple-regret on Matérn) / Probability of Improvement (Kushner 1964) / Thompson sampling on the GP posterior via Halton candidate set (Kandasamy et al. 2018 — Õ(√(T γ_T β_T)) frequentist regret) / Knowledge Gradient (Frazier-Powell-Dayanik 2009 — quasi-Monte-Carlo one-step-lookahead on the posterior maximiser); batch / parallel suggestions via constant-liar fantasy (Ginsbourger-Le Riche-Carraro 2010); mixed continuous + categorical domains via encoding-based GP; golden-section log-marginal-likelihood lengthscale learning every K observations (Rasmussen-Williams §5.4); anytime instantaneous regret upper bound 2 √β_t · max_x σ_{t-1}(x); information-gain accumulator γ̂_t = ½ Σ log(1 + σ²_t/σ_n²); tamper-evident SHA-256 fingerprint over (config, observation history) on every BayesOptReport; replay-deterministic given config.seed; pure stdlib — inline Cholesky / triangular solve / Beasley-Springer-Moro inverse-Φ / Halton 1960 low-discrepancy quasi-random); the *pick-the-next-expensive-query-and-prove-its-regret* primitive — the continuous-arm dual of Bandit (which is K-armed cumulative regret) and Arbiter (which is finite-arm PAC best-arm); composes with Bandit (warm-start GP with a categorical Bandit's posterior means; bandit-of-acquisitions meta-loop), Arbiter (PAC certification on the BayesOpt incumbent), Sampler (full-posterior Thompson via MCMC over GP hyperparameters), ExperimentDesigner (BayesOpt as the inner loop of any cost-aware design), Refuter (refute that the posterior covers the truth via held-out coverage), Forecaster (treat μ_n(x) ± σ_n(x) as a calibrated forecast; PIT applies), Auditor (BH on per-candidate improvement e-values), PrivacyAccountant (DP-BayesOpt via noisy y_t with widened regret bound), AttestationLedger (replay-verifiable suggest→observe receipts), Strategist (BayesOpt as the strategy when STRAT_EXPLOIT_CONTINUOUS), Coordinator (one expensive black-box per PlanStep)
   reasoner.py       # Reasoner — symbolic logical reasoning as a runtime primitive (DPLL (Davis-Putnam-Logemann-Loveland 1962) with unit propagation + pure-literal elimination / CDCL (Marques-Silva-Sakallah 1996 GRASP, Moskewicz et al. 2001 Chaff, Eén-Sörensson 2003 MiniSat) with two-watched literals (Zhang-Stickel 1996), VSIDS branching (Moskewicz et al. 2001), 1-UIP clause learning (Zhang-Madigan-Moskewicz-Malik 2001), and Luby restarts (Luby-Sinclair-Zuckerman 1993) / Walk-SAT (Selman-Kautz-Cohen 1994) with Schöning 1999 noise / resolution refutation (Robinson 1965) reconstructing an UNSAT proof chain ending in the empty clause / semi-naïve Datalog forward chaining (Bancilhon-Maier-Sagiv-Ullman 1986; Ullman 1989) with Robinson 1965 unification on uppercase-Prolog-convention Datalog variables / SLD-resolution backward chaining (Kowalski 1974) with full backtracking + subsumption tabling (Tamaki-Sato 1986) so left-recursive Horn rules terminate / Answer Set Programming stable-model semantics (Gelfond-Lifschitz 1988) via guess-and-check on NaF atoms with reduct evaluation and stratified-negation fast path (Apt-Blair-Walker 1988) + automatic Herbrand-universe grounding for rules with Datalog variables); Clopper-Pearson 1934 anytime-valid finite-sample upper bound on randomised-solver failure rate (closed form 1−α^{1/n} at k=0, regularised incomplete beta inversion via stdlib continued fraction otherwise); Hoeffding 1963 / Maurer-Pontil 2009 empirical-Bernstein half-widths for model-count importance sampling; Tarjan 1972 iterative SCC on the rule dependency graph for negation-stratification detection; tamper-evident SHA-256 fingerprint chaining every clause, fact, rule, and decision (replay-deterministic given seed); pure stdlib — no Z3, no SMT-LIB, no PEG parser; the *give-me-a-proof-or-give-me-a-counterexample* primitive — the **deterministic-logic** dual of Refuter (which falsifies probabilistic claims with PAC bounds) and the **discrete-logic** complement of Synthesizer (which fills in programs from examples) — composes with Refuter (Reasoner certifies what Refuter cannot refute after a CS-large budget), Synthesizer (Reasoner as the CEGIS verifier; Solar-Lezama 2008 — encode correctness predicate, Reasoner finds counter-example or certifies UNSAT), Negotiator / MechanismDesigner / PortfolioOptimizer (feasibility oracle for hard constraints — integrality, conflicting-resources, capacity), Equilibrator / Diplomat (Boolean side-conditions on equilibria solved before LP / CFR), CausalDiscoverer (Horn-program encoding of v-structure orientation rules), Auditor (BH/FDR control of the false-proof rate across simultaneous reasoning tasks), Cartographer (prereq-DAG forward chain → ready/1 for next-task pick), AttestationLedger (proof tree from backward_chain + resolution proof from UNSAT close hash directly into the ledger), PrivacyAccountant (odometer advance on each add_fact when facts came from sensitive data), Strategist (entailment query "does policy A satisfy invariant I in every model of these rules" before the risk-adjusted score is quoted)
+  predictor.py      # Predictor — universal sequence prediction via Context Tree Weighting (Willems-Shtarkov-Tjalkens 1995 *The Context-Tree Weighting Method: Basic Properties*; Willems 1998 *Extensions*) — exact Bayesian mixture over the exponential class of variable-order Markov models of depth ≤ D in O(D) per-symbol time, with redundancy bound `-log₂ P_CTW(x₁ⁿ) ≤ -log₂ P_S(x₁ⁿ) + (|S|·(A-1)/2)·log₂(n/|S|) + 2|S| - 1` against every tree source S of leaves |S| (Krichevsky-Trofimov 1981 parameter redundancy minimax-optimal; 2|S|-1 model redundancy bits from the CTW prior); KT-Dirichlet `Dir(½, …, ½)` per-context posterior predictive `(c_x + ½) / (n + A/2)` — minimax-optimal under log-loss on memoryless sources (Xie-Barron 1997); log-sum-exp stable internal-node mixing `log P_w = log(½ exp(log P_KT) + ½ exp(log P_w(0s) + log P_w(1s)))` with lazy node expansion (O(min(Aᴰ, n·D)) memory); Volf-Willems 1998 switching-CTW with per-symbol switch rate α tracking non-stationary sources (piecewise-stationary tree mixtures); Willems-Shtarkov-Tjalkens 1993 Context-Tree Maximisation (CTM) MAP-tree via `max` recursion under the same prior — returns the interpretable variable-order Markov model with highest posterior weight; plug-in entropy-rate estimator `Ĥ_n = -log₂ P_w(x₁ⁿ)/n` consistent for any stationary ergodic source (Cover-Thomas 1991 §13); anytime-valid e-process `e_T = Aᵀ · P_w(x₁ᵀ)` for `H₀: x_t iid Uniform({0,…,A-1})` (Ville's inequality; Vovk-Wang 2021 *E-values*) — reject at level α whenever e ≥ 1/α under any data-dependent stopping rule; greedy / argmax `k`-step continuation via non-destructive snapshot-restore rollout; tamper-evident SHA-256 fingerprint chain over every observe / predict / select / report event for AttestationLedger replay; thread-safe re-entrant lock; pure stdlib — math.log / math.exp / hashlib, no NumPy / SciPy / dependencies); the *give-me-the-universal-predictor-over-an-exponential-model-class-with-an-O(log-n)-redundancy-certificate* primitive — the **non-parametric prediction** companion to Forecaster (calibrated parametric forecasts), Hedger (universal aggregation over a finite expert pool), and Compressor (MDL model-class selection from a finite catalog) — implements the *universal-predictor half* of MC-AIXI-CTW (Veness-Ng-Hutter-Uther-Silver 2011 *A Monte-Carlo AIXI Approximation*), the most credible AGI approximation; composes with Forecaster (CTW predictive distribution IS a calibrated forecast — PIT-uniformity tests apply to ranks; log-loss per symbol IS the proper-scoring-rule score), Compressor (CTW code length IS prequential MDL for the variable-order-Markov class — the universal codelength against which Compressor's finite catalog is benchmarked), Hedger (register multiple Predictors of different depth as experts; AdaHedge picks the best D online — universal predictor of universal predictors), Abductor (each hypothesis's CTW codelength IS the marginal log-likelihood used in the Bayes-factor ratio — no closed-form needed), DriftSentinel (running CTW log-loss is a martingale under correct model spec — CUSUM detects regime change; switching-CTW α-rate IS the prior changepoint frequency), Refuter (CTW e-process refutes uniformity / i.i.d. / fixed-depth-d Markov nulls with anytime-valid p-values), Filterer (CTW on discretised innovations is a model-free residual test for state-space mis-specification), Reasoner (CTW MAP tree = variable-order Markov rules to be encoded into a Horn program for symbolic queries on regularities), Sampler (the predictive distribution IS the proposal in Sequential Monte Carlo on discrete symbol streams), ActiveInferencer (CTW IS a learned generative observation model whose log-likelihood plugs into expected free energy — closes a planner-predictor loop), AttestationLedger (every observe / predict / report hash chains into the ledger so an auditor can replay the prediction trace byte-for-byte), Strategist (Strategist picks among Predictor configurations whose universal redundancy bounds set the *worst-case* regret in the risk-adjusted score), PrivacyAccountant (DP-noisy symbols additively widen the KT log-loss by `log A · ε` per release — odometer advances accordingly), Coordinator (every Goal whose execution is sequential and observed as a symbol stream — tool-call success/fail, anomaly streams, log streams, plan-step outcomes — routes through Predictor.observe / .predict so the coordination engine has a calibrated belief over what comes next, with anytime-valid certificates the compliance officer can sign before action)
   compressor.py     # Compressor — Minimum Description Length hypothesis selection as a runtime primitive (refined-MDL Normalized Maximum Likelihood (Shtarkov 1987; Rissanen 1996) with exact Shtarkov-sum log C_n for Bernoulli (closed form), Multinomial-of-k (Mononen-Myllymäki 2008 O(k) recurrence), Geometric / Poisson / Gaussian-known-σ / Gaussian-unknown-σ / Histogram / Markov-of-order-r — luckiness-NML with coordinator-supplied bounded parameter ranges for non-compact parameter spaces (Grünwald 2007 Ch. 7); universal codes for the positive integers — Elias-γ / Elias-δ (Elias 1975) and Rissanen 1983 log* with universal constant c₀ = 2.865064; classical two-part Rissanen 1978 MDL with the (k/2) log n optimal-precision parameter code as a sanity-check against NML; prequential / sequential Dawid 1984 plug-in codes — Krichevsky-Trofimov 1981 (½, ½)-Dirichlet for binary and multinomial sequences (minimax regret matches NML to O(1)), Laplace 1814 rule (Dirichlet 1) as a textbook baseline, normal-inverse-gamma Bayesian Student-t mixture for the Gaussian families; Schwarz 1978 BIC and Akaike 1974 AIC for cross-method consistency checks; Vovk 1990 strong-aggregating-algorithm per-symbol regret bound on the runner-up (free-of-distribution); pairwise Bayes-factor comparison plus Stone 1974 / Geisser 1975 leave-one-out cross-check; anytime-valid online observation — every per-symbol call returns the prequential codelength increment, accumulates into a running total that matches the batch KT bit-exactly, and stays valid at every stopping time; tamper-evident SHA-256 fingerprint chain (genesis ``compressor.v1.genesis``) hashing every register / fit / score / select / observe / compare / report event so an auditor can replay the model-selection trace byte-for-byte; thread-safe re-entrant lock; pure stdlib — math.lgamma / math.log / math.exp / hashlib; the *which-model-class-itself-is-best-supported-by-the-data* primitive — the **meta-decision** that no other primitive in the runtime supplies: Solomonoff 1964's compression-equals-induction thesis, Rissanen 1978's MDL, Hutter 2005's universal AGI, behind one API — composes with Sampler (Compressor picks the model class, Sampler simulates the posterior in it), Forecaster (Compressor monitors prequential codelength → triggers re-fit on misspec), DriftSentinel (Compressor's rolling-window codelength IS the drift statistic), Refuter (codelength gap → Bayes factor → reject/accept "model M is best"), Reasoner (Compressor scores competing boolean encodings of a structured constraint), Composer (Compressor ranks candidate plan structures by joint MDL of formula + outcomes), PrivacyAccountant (codelength releases under DP, additive composition over streams), AttestationLedger (every codelength event canonicalised SHA-256), Strategist (which model class to pivot to → MDL-best registered candidate)
   hedger.py         # Hedger — universal prediction with experts / online learning with provable regret as a runtime primitive (Hedge / EWA / Multiplicative Weights (Vovk 1990 *Aggregating strategies*; Littlestone-Warmuth 1994; Freund-Schapire 1997) with Vovk-1990 minimax-optimal η = √(8 log N / T) — R_T ≤ √(T log N / 2); AdaHedge (de Rooij-van Erven-Grünwald-Koolen 2014 *Follow the Leader if you can, hedge if you must*) parameter-free adaptive learning rate η_t = log N / Δ_{t-1} with cumulative mixability gap Δ_t — R_T ≤ 2√(V_T log N) + O(log N) second-order; NormalHedge (Chaudhuri-Freund-Hsu 2009) anytime parameter-free with per-rank regret R_T(d) ≤ √(2 T (log(d+1) + log N)); Squint (Koolen-van Erven 2015 *Second-order quantile methods for experts*) improper-prior aggregation with second-order K-quantile regret, closed-form integral over η ∈ [0, 1/2] evaluated via 64-point Simpson + log-max stabilisation; ML-Prod / Prod (Cesa-Bianchi-Mansour-Stoltz 2007 *Improved second-order bounds*) polynomial-weighted with R_T ≤ √(8 V_T log N) + 5 log N; FTRL-Entropy (= Hedge) and FTRL-L2 (= projected OGD) with Wang-Carreira-Perpinan 2013 linear-time exact simplex projection; FTPL (Hannan 1957 *Approximation to Bayes risk in repeated play*; Kalai-Vempala 2005) with IID exponential perturbations for combinatorial action spaces, Monte-Carlo-estimated, replay-deterministic given seed; Online Mirror Descent with entropic mirror map (Beck-Teboulle 2003); BOA (Wintenberger 2017 *Optimal learning with Bernstein online aggregation*) per-expert Bernstein-tilted second-order η_i = 1 / (2 (1 + log(1+V_i))) with bound R_T ≤ √(2 V_T (1 + log N)) + 2(1 + log N); specialists / sleeping experts (Freund-Schapire-Singer-Warmuth 1997) via observe_partial; PAC-Bayes regret bound (McAllester 1999; Catoni 2007) against arbitrary reference distribution; Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequences on every per-expert mean loss; Maurer-Pontil 2009 empirical-Bernstein LCB / UCB; Hoeffding 1963 distribution-free LCB / UCB; realised KL(w_t ‖ π_0) in nats; tamper-evident SHA-256 fingerprint chain (genesis ``hedger.v1.genesis``) over every predict / select / observe so AttestationLedger replays the trace byte-for-byte; thread-safe re-entrant lock; pure stdlib — math.log / math.exp / math.erf / hashlib); the *combine-any-K-expert-recommendations-and-prove-the-vanishing-regret-against-the-best-one-in-hindsight* primitive — the universal **online-learning** aggregator that turns the runtime's pool of decision primitives (Bandit / BayesOpt / Arbiter / Strategist / Forecaster / Quantilizer) into a single meta-decision whose cumulative loss tracks the best-fixed-primitive-in-hindsight up to O(√(T log N)) without any distributional assumption; composes with Bandit / BayesOpt / Arbiter / Strategist (register each as an expert; Hedger.select() picks the right primitive at runtime, with bounded regret), Forecaster (log-loss aggregation gives constant regret R_T ≤ log N — universal predictor — applicable to ensembles of probabilistic forecasters under any proper scoring rule), PolicyImprover (PAC-Bayes regret bound becomes HCPI-style safety gate), Quantilizer (q-quantilize over Hedger weights to bound KL from a safe-expert baseline; cost amplification 1/q caps the regret/safety trade-off), DriftSentinel (AdaHedge mixability gap δ_t is a martingale drift signal — CUSUM on δ_t detects regime change), Refuter (per-expert anytime confidence sequence refutes dominance claims at any stopping time), Composer (a Plan-level Hedger lets the coordinator hedge over candidate Plans with composed reliability bounds; Hedger's KL bound sets the safety constant in Composer's PAC certificate), AttestationLedger (every predict / select / observe chain-hashes), Coordinator (every Goal whose execution picks among candidate primitives / model versions / prompts / tools is routed through Hedger.select() — the coordination engine learns at runtime which primitive to call, with anytime-valid regret certificates the compliance officer can sign before action)
   quantilizer.py    # Quantilizer — safety-bounded optimisation as a runtime primitive (hard exact discrete q-quantilizer (Taylor 2016 *Quantilizers: A Safer Alternative to Maximizers for Limited Optimization*), top-K quantilizer with deterministic SHA-256 tie-break, soft Boltzmann / Gibbs quantilizer with KL budget solved by bisection so KL(π_β ‖ b) = B exactly, sample-based empirical quantilizer with Massart-DKW 1990 finite-sample band on the (1-q)-quantile, Hoeffding 1963 / Maurer-Pontil 2009 empirical-Bernstein / Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid LCB / UCB on the expected utility under the quantilizer, Taylor 2016 hidden-cost amplification UCB (E_q[c] ≤ E_b[c] / q), exact KL bound log(1/q), TV bound 1 − q, Pinsker / Bretagnolle-Huber 1979 / Le Cam derived divergence bounds, deterministic JSON-canonical SHA-256 fingerprint chain (genesis ``quantilizer.v1.genesis``) so every selection / quantilization / observation hashes into a replay-verifiable receipt for AttestationLedger, thread-safe re-entrant lock, pure stdlib — Beasley-Springer-Moro 1995 inverse-Φ, math.log / math.exp / hashlib); the *give-me-a-Goodhart-resistant-optimiser-and-prove-the-KL-bound-on-the-policy-deviation* primitive — the **safety** companion to Bandit / BayesOpt / Arbiter (cumulative-regret + PAC best-arm) and PolicyImprover (CRM-optimised policy) that bounds how far an optimiser may drift from a safe base under reward misspecification (Manheim-Garrabrant 2018 Goodhart variants); composes with Bandit (wrap select_arm in Quantilizer.select for safe exploration with KL-budget log(1/q) above the bandit's own policy; cost amplification 1/q sets the worst-case regret/safety trade-off), BayesOpt (q-quantilize EI selections to bound KL from a safe-prior Gaussian-process acquisition policy), Arbiter (the safety wrapper that converts an asymptotic best-arm-identification answer into a KL-bounded one), PolicyImprover (KL-bounded safe-improvement step: soft_quantilize(deployed_policy, CRM_score, kl_budget) lands exactly on the budgeted frontier — log(1/q) becomes the safety constant in the HCPI Bernstein-LCB gate), Persuader (q-quantilize over signal schemes bounds information design's KL from a truthful disclosure baseline), Strategist (risk-adjusted, KL-bounded meta-decision over recommendations), Refuter (adversarial search becomes a quantilizer when the falsification budget needs cost-amplification bound), Sampler (consume MCMC draws into quantilize_samples; Sampler's PSRF/ESS diagnostics gate the chain), Forecaster (PIT-calibrated quantilizer over calibrated predictions; Brier loss + cost amplification = decision-theoretic risk), DriftSentinel (a sudden change in the realised (1-q)-quantile threshold IS a drift signal on the base distribution), AttestationLedger (every Selection chain-hashes including the cryptographic commit to the base distribution, proxy utility, q, and seed), PrivacyAccountant (quantilization is post-processing of b — DP guarantee on b transfers verbatim to the quantilizer with no additional ε spent), Coordinator (every Goal whose execution chooses among candidate plans / prompts / models / tools is safety-budgeted by routing the candidate distribution through Quantilizer before action)
@@ -2670,6 +2671,106 @@ Mononen recurrence consistency, KT-vs-NML regret bracket, balanced /
 biased / correlated / Gaussian / constant recovery, online ≡ batch
 equivalence, tamper-evident fingerprint chain.
 
+## Predictor — universal sequence prediction as a runtime primitive
+
+`Compressor` selects the best of a *finite* catalogue of model
+classes for a stream — Bernoulli, Markov-of-order-r, Gaussian, etc.
+That's the right move when the coordinator knows the family the data
+lives in. The non-parametric question — *what is the predictive
+distribution of the next symbol from an **unknown** source, with a
+redundancy certificate that holds against any tree source up to
+depth D?* — is the universal-prediction question (Solomonoff 1964;
+Cover-Thomas 1991; Rissanen 1984). `Predictor` answers it.
+
+```python
+from agi.predictor import Predictor, SELECT_MAP
+
+pred = Predictor.create(alphabet_size=2, depth=8, seed=0)
+for s in stream:
+    pred.observe(s)
+p          = pred.predict()                  # {0: p0, 1: p1}
+code_bits  = pred.code_length_bits()         # universal code length
+entropy    = pred.entropy_rate_estimate()    # bits per symbol
+map_tree   = pred.map_tree()                 # CTM MAP variable-order model
+bound      = pred.redundancy_bound()         # universal certificate
+e          = pred.e_process_vs_uniform()     # anytime-valid e-process
+next_sym   = pred.select(SELECT_MAP)
+report     = pred.report()
+```
+
+It implements **Context Tree Weighting** (Willems-Shtarkov-Tjalkens
+1995) — the exact-mixture sequential predictor that averages over the
+exponentially large class of variable-order Markov models of depth
+≤ D in **O(D) per-symbol time**.  The redundancy bound is
+
+```
+-log₂ P_CTW(x₁ⁿ)  ≤  -log₂ P_S(x₁ⁿ)
+                   + (|S|·(A-1)/2) · log₂(n / |S|)
+                   + 2|S| - 1
+```
+
+for every tree source `S` with `|S|` leaves — Krichevsky-Trofimov
+parameter redundancy + CTW model redundancy.  Per symbol the
+redundancy vanishes as `O(log n / n)`.
+
+It also ships the **Context-Tree Maximisation (CTM)** MAP tree
+(Willems-Shtarkov-Tjalkens 1993) — same recursion with `max` replacing
+the `½ + ½` mixture — so a coordination engine can extract an
+interpretable variable-order Markov model from the same posterior.
+
+Why this primitive matters as the **universal-prediction half of
+MC-AIXI-CTW** (Veness-Ng-Hutter-Uther-Silver 2011 *A Monte-Carlo AIXI
+Approximation*) — the most credible AGI approximation in the
+literature.  MC-AIXI-CTW is a UCT planner whose generative model is
+exactly this predictor; that planner half is `Composer` / `Active
+Inference` in this stack.
+
+| Composes with     | What it buys                                                                 |
+|-------------------|------------------------------------------------------------------------------|
+| `Forecaster`      | CTW predictive IS a calibrated forecast (PIT-uniformity on ranks)            |
+| `Compressor`      | CTW code length IS the universal benchmark for finite-catalog MDL            |
+| `Hedger`          | Register many depths as experts; AdaHedge picks D online                     |
+| `Abductor`        | CTW codelength IS the marginal log-likelihood for Bayes-factor ratios         |
+| `DriftSentinel`   | Running CTW log-loss is a martingale — CUSUM detects regime change           |
+| `Refuter`         | CTW e-process refutes uniformity / i.i.d. / fixed-d Markov anytime-valid     |
+| `Reasoner`        | MAP tree → variable-order rules → encode in Horn program for symbolic query  |
+| `Sampler`         | Predictive distribution IS the proposal in SMC on discrete streams           |
+| `ActiveInferencer`| CTW IS a learned generative observation model for EFE planning               |
+| `Coordinator`     | Every symbol-stream goal routes through `Predictor.observe` / `.predict`     |
+
+The `Predictor` is anytime, thread-safe, reproducible from a seed,
+and emits hash-chained receipts (genesis `0`-block, SHA-256 step on
+every observe / predict / select / report) that an `AttestationLedger`
+can replay byte-for-byte.  Stdlib-only — no NumPy, no SciPy, no
+dependencies.
+
+**Pitch.**  Every other primitive commits to a model family before
+seeing the data.  `Predictor` commits to *no* family — it averages
+over them all up to depth D — and proves it cannot lose to the best
+one by more than `O(log n)` bits.  When the coordination engine has
+*no* prior on the structure of the symbol stream it just observed,
+this is the primitive to call.
+
+```text
+$ python examples/predictor_demo.py
+1. Universal compressor on structured binary streams
+  all-zeros (n=400)             CTW =    5.15 bits ( 1.29% of naive)
+  alternating 01 (n=400)        CTW =   10.29 bits ( 2.57% of naive)
+  period-4 0011 (n=400)         CTW =   19.58 bits ( 4.89% of naive)
+  Markov sticky (n=400)         CTW =  133.72 bits (33.43% of naive)
+  uniform random (n=400)        CTW =  404.70 bits (101.18% of naive)
+
+2. Entropy-rate estimation on biased sources
+  P(1) = 0.50   true H = 1.0000   CTW H = 1.0013   gap = +0.0013
+  P(1) = 0.70   true H = 0.8813   CTW H = 0.8720   gap = -0.0093
+  P(1) = 0.90   true H = 0.4690   CTW H = 0.4684   gap = -0.0006
+  P(1) = 0.99   true H = 0.0808   CTW H = 0.0849   gap = +0.0041
+
+4. Anytime-valid e-process vs H₀: iid Uniform Bernoulli
+  uniform random      e-value = 5e-02      do not reject H_0
+  structured 0011     e-value = 2.7e+144   REJECT H_0 at α = 1e-9
+```
+
 ## Quantilizer — safety-bounded optimisation as a runtime primitive
 
 Every other decision primitive in this runtime — Bandit, BayesOpt,
@@ -3147,6 +3248,1699 @@ preference fitting concentrates on the winning trajectory direction,
 BIRL's MCMC chain produces sensible posterior credible regions with
 acceptance rate in the Roberts-Rosenthal band, and the soft-optimal
 policy is a valid conditional distribution everywhere.
+
+## Topologist — topological data analysis as a runtime primitive
+
+Every primitive in this runtime that "looks at the shape of data" does
+so through a statistical lens — moments, quantiles, kernel densities,
+mixture parameters, calibration histograms. Statistics is a contraction
+that throws away geometric information. A point cloud that has three
+well-separated clusters, a point cloud that lies on a circle, and a
+point cloud that lies on a sphere with a hole punched in it **can all
+share the same mean and covariance** while having radically different
+latent structure. No other primitive in this runtime distinguishes them.
+
+The `Topologist` is the runtime primitive that closes that gap. It
+implements **persistent homology** (Edelsbrunner-Letscher-Zomorodian
+2002) on a filtered Vietoris-Rips complex (Vietoris 1927; Rips 1981)
+and returns, for every requested homological dimension, the multiset
+of `(birth, death)` pairs that summarise the topological invariants
+of the data at every scale. Dimension 0 counts connected components
+(clusters); dimension 1 counts independent loops; dimension 2 counts
+independent voids. Each pair has a persistence `death − birth`
+measuring how robust the feature is to scale perturbation, and the
+diagram as a whole comes with a **stability certificate**:
+
+> For any two finite metric spaces *X*, *Y* and any homological
+> dimension *k*,
+>
+>     d_B(D_k(X), D_k(Y)) ≤ d_H(X, Y)
+>
+> where *d_B* is the bottleneck distance between persistence
+> diagrams and *d_H* is the Hausdorff distance between point
+> clouds. (Cohen-Steiner-Edelsbrunner-Harer 2007.)
+
+Stability holds for **any** underlying distribution — no smoothness,
+ergodicity, or i.i.d. assumption is required. This is the one
+primitive that is genuinely *distribution-free* and *model-free*.
+
+### Runtime API
+
+```python
+from agi import Topologist
+
+top = Topologist.create(max_dim=1, max_scale=2.5, seed=0)
+for p in cloud:
+    top.observe(p)
+
+diag = top.compute()                       # PersistenceDiagram
+barcode = diag.barcode(dim=0)              # cluster stability ranking
+loops = diag.diagram(dim=1)                # circular structure
+top3 = diag.k_most_persistent(0, 3)        # top-3 clusters by persistence
+ls = diag.landscape(dim=1, num_levels=3)   # vectorised feature
+betti = diag.betti(scale=1.2)              # β_0, β_1, ... at given scale
+
+band = top.bootstrap_band(n_resamples=50, alpha=0.05)   # Fasy et al. 2014
+sig = diag.significant_features(dim=1, threshold=band.dim(1))
+
+drift = diag.bottleneck_distance(reference_diagram, dim=1)
+cert = top.stability_certificate(hausdorff_perturbation=0.05)
+report = top.report()
+```
+
+Every `observe`, `compute`, `bootstrap_band`, `bottleneck_to` and
+`report` is hashed into a SHA-256 fingerprint chain compatible with
+`AttestationLedger`.
+
+### What a coordination engine uses it for
+
+| Question                                                              | Call                                                  |
+|-----------------------------------------------------------------------|-------------------------------------------------------|
+| How many distinct modes are these LLM rollouts clustered into?        | `diag.significant_features(0, threshold=band.dim(0))` |
+| Did the world-model close a loop in its latent space?                 | `diag.diagram(1)` with persistence above noise        |
+| Is this batch of embeddings still on the policy's training manifold?  | `diag.bottleneck_distance(reference, dim=1)`          |
+| Has a new failure mode opened a hole in the calibration curve?        | `diag.betti(scale)` at the operating scale            |
+| With what confidence can I claim "the data has *k* clusters"?         | `bootstrap_band` quantile vs feature persistence      |
+
+### Mathematical roots
+
+  * **Vietoris 1927; Rips 1981 — Vietoris-Rips complex.** The
+    abstract simplicial complex on `(X, d)` at scale `r` whose
+    `k`-simplices are the size-`(k+1)` subsets of diameter ≤ `r`.
+  * **Edelsbrunner-Letscher-Zomorodian 2002 — Persistent homology.**
+    The filtered chain complex induced by the inclusion
+    `VR(X, r) ⊆ VR(X, r')` for `r ≤ r'` yields homology classes
+    that are born at one scale and die at another; their
+    `(birth, death)` pairs form the *persistence diagram* `D_k(X)`.
+  * **Elder rule (dim 0).** Connected components admit a closed-form
+    algorithm: process edges in nondecreasing scale order, track
+    components with a union-find, and on every merge kill the
+    *younger* (later-born) component.
+  * **Standard matrix reduction (dim ≥ 1).** All simplices ordered
+    by `(filt_value, dim, index)`; boundary matrix over `𝔽_2`
+    reduced left-to-right; unpaired columns = essential classes,
+    paired columns = `(birth, death)` pairs of the lower dimension.
+  * **Cohen-Steiner-Edelsbrunner-Harer 2007 — Stability.**
+    `d_B(D, D')` is 1-Lipschitz in the Hausdorff distance between
+    point clouds: a perturbation of size `ε` moves every persistence
+    point by at most `ε` in `ℓ_∞`.
+  * **Bubenik 2015 — Persistence landscapes.** The `k`-th
+    landscape function `λ_k(t) = k`-th max of the tent functions
+    `tent_{(b,d)}(t) = max(0, min(t − b, d − t))`. Each landscape
+    is 1-Lipschitz in bottleneck distance, giving a stable vector
+    representation for downstream models.
+  * **Fasy-Lecci-Rinaldo-Wasserman-Balakrishnan-Singh 2014 —
+    Subsampled bootstrap.** The empirical `1 − α` quantile of the
+    bottleneck distance between subsample diagrams and the full
+    diagram is an asymptotic `1 − α` confidence band for the
+    population diagram; features above `2 ·` quantile from the
+    diagonal are statistically significant at level `α`.
+
+### Investor framing
+
+Every other primitive in the stack commits to a parametric model
+class before it sees the data (mixture of Gaussians, tree source,
+Gaussian process, Markov chain). The `Topologist` is the only
+primitive that supplies a **model-free, geometry-only** answer to the
+shape question. The output is a structured diagram with a
+finite-sample stability certificate; the coordination engine routes
+the decision through the same audit ledger every other primitive emits.
+
+### What it deliberately doesn't claim
+
+  * A full GUDHI / Ripser replacement. The runtime is pure-Python
+    and tuned for **coordination-scale** clouds (≤ a few hundred
+    points, fast, deterministic). The 2-skeleton reduction is
+    `O((|X|²)ᵂ)` in the worst case; the user caps `max_scale`,
+    `max_points`, `max_simplices`, or `max_dim` to stay tractable.
+    For very large clouds and higher-dimensional homology, an
+    external library remains the right tool.
+  * A statistical test of "this data has a loop". The bootstrap
+    band is a confidence statement on the population diagram; the
+    user still has to decide what "significant persistence" means
+    for their application.
+
+## Embedder — distortion-bounded text embeddings as a runtime primitive
+
+Every learning / retrieval primitive in this runtime that "compares two
+pieces of text" was historically doing it through keyword overlap:
+``Memory.search`` matches by literal tokens, ``SkillLibrary`` reranks via
+the LLM, ``Cartographer`` clusters by a hand-supplied feature vector the
+coordinator computes itself.  Both ``PLAN.md`` (Stage 3) and
+``ARCHITECTURE.md`` (Long-term memory) call out the gap explicitly:
+
+> Pluggable embedding backend — *Memory.search() becomes semantic.*
+> (Anthropic doesn't ship embeddings.)
+
+The ``Embedder`` is the primitive that closes that gap **without an
+external embedding service, without a learned model, and with a
+finite-sample distortion certificate**.  It composes three classical,
+pure-Python, deterministic transforms:
+
+```
+text  ── HashingVectorizer (Weinberger et al. 2009) ──>  sparse ℝ^N
+      ── sparse Random Projection (Achlioptas 2003)  ──>  dense  ℝ^d
+      ── L2 normalisation                            ──>  unit-norm v
+```
+
+### Runtime API
+
+```python
+from agi import Embedder, embedder_jl_dimension, embedder_jl_certificate
+
+emb = Embedder.create(dim=128, n_gram_range=(2, 4), seed=0)
+v   = emb.embed("the quick brown fox")                # Embedding (unit-norm)
+doc = emb.add("the lazy dog", payload={"src": "doc1"})
+hits = emb.search("the brown dog", k=5)               # cosine top-K
+emb.build_lsh_index(n_bands=8, bits_per_band=8)
+fast = emb.search_lsh("the brown dog", k=5)           # sub-linear via SimHash
+cr   = emb.cluster(k=3, max_iter=50, seed=7)          # k-means++ + Lloyd
+cert = emb.jl_certificate(n_items=1000, eps=0.1)      # JL bound
+rep  = emb.report()
+```
+
+Every ``embed``, ``add``, ``search``, ``cluster`` and ``report`` is hashed
+into a SHA-256 fingerprint chain compatible with the
+``AttestationLedger`` every other primitive uses.
+
+### Mathematical roots
+
+  * **Weinberger-Dasgupta-Langford-Smola-Attenberg 2009 — Feature
+    Hashing.**  The estimator
+    `⟨φ(x), φ(y)⟩` is *unbiased* for `⟨x, y⟩` with variance bounded by
+    `(‖x‖² ‖y‖² + ⟨x, y⟩²) / N'`.  No vocabulary file, no streaming
+    counts: a hash + sign is the entire model.
+  * **Achlioptas 2003 — Database-friendly Random Projections.**
+    Replaces the Gaussian projection matrix by a sparse `±1/√d`-valued
+    matrix.  The resulting embedding still satisfies Johnson-
+    Lindenstrauss, but the projection is `2/3`-sparse and exactly
+    representable in integer arithmetic.
+  * **Johnson-Lindenstrauss 1984; Dasgupta-Gupta 2003.**
+    For any `n`-point set in any Hilbert space and `ε ∈ (0, 1/2)`,
+    embedding into `d ≥ ⌈8 ln n / ε²⌉` dimensions preserves every
+    pairwise squared distance within `(1 ± ε)` with probability at
+    least `1 − 1/n`.  Distribution-free.
+  * **Charikar 2002 — SimHash.**  For unit-norm `u, v` and a random
+    Gaussian `r`, `P[sign(⟨u, r⟩) = sign(⟨v, r⟩)] = 1 − θ(u, v) / π`.
+    Banded signatures give sub-linear nearest-neighbour retrieval.
+  * **Arthur-Vassilvitskii 2007 — k-means++.**  `D²`-weighted seeding
+    is `O(log k)`-competitive against optimal cost.  Combined with
+    Lloyd iterations on cosine distance for spherical clustering.
+
+### What a coordination engine uses it for
+
+| Question                                                              | Call                                          |
+|-----------------------------------------------------------------------|-----------------------------------------------|
+| Are these two prompts asking for the same thing?                      | `emb.embed(a).cosine_to(emb.embed(b))`        |
+| Which past skill is closest to this prompt?                           | `emb.search(prompt, k=3)` over the skill set  |
+| Find duplicate traces in the session log                              | `emb.cluster(k, seed=…)` + tight cluster size |
+| Sub-linear retrieval over 10⁴ memos                                   | `emb.search_lsh(query, k, n_bands=…, bits=…)` |
+| What dimension do I need for ε=0.1 distortion on n=10⁵ items?         | `embedder_jl_dimension(100000, 0.1)`          |
+| Has this batch of embeddings drifted from the training manifold?      | `Topologist.bottleneck_distance(...)` on emb. |
+
+### Investor framing
+
+Every other primitive in this stack already produces calibrated, audited
+artefacts: forecasts, decisions, certificates.  *Until the runtime can
+embed text it cannot apply any of those primitives to its own memory.*
+The ``Embedder`` is the connective tissue that turns the rest of the
+audit-able stack onto the runtime's own conversation history, skills,
+traces and tickets — without an external API call, without a learned
+model file, with a JL certificate the operator can show to a regulator.
+
+### What it deliberately doesn't claim
+
+  * A replacement for a learned semantic embedder (Voyage AI,
+    OpenAI, sentence-transformers, BERT).  Those embeddings capture
+    distributional semantics from large pretraining corpora; this
+    primitive captures **lexical / syntactic proximity** with a JL
+    certificate.  When a deployment wants higher-quality semantic
+    retrieval, a learned backend can be wired in behind the same
+    ``EmbeddingProvider`` protocol without changing downstream code.
+  * A vector database.  The internal index is in-memory and tuned for
+    coordination-scale corpora (up to ~10⁴ items).  Larger corpora
+    should plug an external store (pgvector, qdrant, etc.) in front
+    of the same ``EmbeddingProvider``.
+
+## Scientist — sparse symbolic law discovery as a runtime primitive
+
+Every other learning primitive in this stack fits a model whose *form*
+is fixed before fitting begins.  `Forecaster` fits a parametric mean
+process.  `Predictor` mixes a fixed class of variable-order Markov
+models.  `Filterer` runs Bayesian state estimation against a *known*
+linear-Gaussian dynamics.  None of them returns an interpretable,
+closed-form *law* — a finite arithmetic expression an investor, a
+domain expert or a downstream verifier could read on a slide.
+
+`agi.scientist.Scientist` closes that gap.  Given a stream of
+`(x ∈ ℝᵈ, y ∈ ℝ)` pairs it discovers a sparse linear combination of
+*symbolic basis functions* — monomials, sines/cosines, exponentials,
+logarithms, plus any user-supplied callable — that explains `y` as a
+function of `x`, and returns a `Law` object carrying
+
+* a printable closed-form expression (`"y ≈ -4.905·x0² + 3.00·x0 + 100.00"`);
+* per-coefficient bootstrap 95% confidence intervals (Efron 1979);
+* per-term stability-selection inclusion frequencies (Meinshausen-Bühlmann 2010);
+* AIC (Akaike 1973), BIC (Schwarz 1978), and MDL (Rissanen 1978) ranking;
+* in-sample R², out-of-sample R² on a held-out set, and Akaike-corrected
+  small-sample AICc;
+* the full **Pareto frontier** of (complexity, residual) so the coordinator
+  can route on the bias / sparsity tradeoff explicitly;
+* a SHA-256 fingerprint chain over every `observe` / `fit` / `report` call,
+  compatible with `AttestationLedger`.
+
+```python
+from agi import Scientist, SCIENTIST_SELECT_AIC
+
+sci = Scientist.create(input_dim=1, max_degree=3, seed=0)
+for t, y in falling_body_data:           # noisy (time, altitude) pairs
+    sci.observe([t], y)
+law = sci.fit(criterion=SCIENTIST_SELECT_AIC)
+print(law)
+# y ≈ 99.9437 + 3.04983·x0 − 4.91241·x0^2          ← gravity recovered
+
+# Pareto front: complexity vs. residual
+for p in sci.pareto():
+    print(p.k, p.lam, p.rss, p.law)
+
+# 95% bootstrap CIs and stability selection
+boot = sci.bootstrap(law=law, n_resamples=200)
+stab = sci.stability_selection(n_resamples=100, pi_thr=0.6)
+
+# Out-of-sample R² on held-out data
+sci.evaluate_r2(test_xs, test_ys, law=law)
+```
+
+### Algorithms
+
+* **STLSQ — Sequential Thresholded Least Squares.**  Brunton-Proctor-Kutz
+  2016 *Discovering governing equations from data by sparse identification
+  of nonlinear dynamical systems*.  Alternate least-squares with hard
+  thresholding `|ξ_j| < λ`; the fixed point is the ℓ⁰-constrained
+  projection of OLS onto the basis subset that survives the threshold.
+  `Scientist` sweeps a grid of `λ` and exposes the full Pareto front.
+* **AIC.**  Akaike 1973 *Information theory and an extension of the
+  maximum likelihood principle*.  `AIC = n·log(RSS/n) + 2k`.
+* **BIC.**  Schwarz 1978 *Estimating the dimension of a model*.
+  `BIC = n·log(RSS/n) + k·log(n)`; consistent for the sparse support
+  as `n → ∞`.
+* **MDL.**  Rissanen 1978 *Modeling by shortest data description*.
+  Two-part code length in bits-per-sample, length-independent so it
+  composes with `Compressor` on the universal-codelength side.
+* **Bootstrap CI.**  Efron 1979 *Bootstrap methods: another look at
+  the jackknife*.  Empirical percentile interval at the selected
+  support.
+* **Stability selection.**  Meinshausen-Bühlmann 2010 *Stability
+  selection*.  Resample, refit, count inclusion frequency; controls
+  per-family error under mild exchangeability.
+* **Pareto knee.**  Satopää-Albrecht-Irwin-Raghavan 2011 *Finding a
+  Kneedle in a Haystack: Detecting Knee Points in System Behavior*.
+  Maximum-distance-from-chord elbow rule on the (complexity, log RSS)
+  curve.
+
+### How it composes with the rest of the runtime
+
+| Question                                                                | Composition                                                                               |
+|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| Did the discovered law generalise?                                       | `ConformalPredictor` wraps `Scientist.predict` for finite-sample prediction intervals.    |
+| Is the law a *false discovery*?                                          | `Refuter` runs metamorphic / boundary attacks against `Law.predict`.                       |
+| What's the chance another law fits as well?                              | `sci.akaike_weights()` returns posterior weights over the Pareto frontier.                 |
+| Is the law numerically stable under data perturbation?                   | `sci.stability_selection()` — Meinshausen-Bühlmann inclusion frequencies.                 |
+| Encode the law as a tool the agent can call.                             | `Synthesizer` lifts `Law.predict` into a typed `Tool`.                                     |
+| Combine the law with a CTW universal predictor.                          | `Compressor` benchmarks Law's MDL bits/sample against `Predictor` codelength.              |
+| Plug the discovered dynamics into a state filter.                        | `Filterer` consumes `Law.predict` as a non-linear `f`; particle filter resolves the noise. |
+| Cross-validate the law on N held-out folds, parallel.                    | `Pool` shards `evaluate_r2` calls across runtimes; `Capabilities` routes folds by latency.|
+| Persist the discovered Law in a knowledge graph.                         | `KnowledgeGraph.add_fact(law_id, "explains", target, weight=law.r2)`.                      |
+| Refuse to act on a law whose CI crosses zero on the leading coefficient. | `Quantilizer.act` gates on `boot.contains_zero(name) is False`.                            |
+| Replay a Law's full derivation byte-for-byte.                            | `AttestationLedger` consumes the fingerprint chain that hashes every `observe` / `fit`.   |
+
+### Investor framing
+
+A coordination engine that can call `Scientist.fit(observation_stream)`
+closes a loop none of the other primitives close: from *observations*
+to *interpretable mechanism*.  `Forecaster` predicts the next number;
+`Filterer` tracks a latent state; `CausalDiscoverer` finds an arrow.
+Only `Scientist` returns the **formula**.  That formula is then:
+
+* an audit artefact a regulator can read;
+* a hypothesis `Refuter` can try to break;
+* a closed-form prior `Filterer` can plug into its dynamics;
+* a typed program `Synthesizer` can lift into a tool;
+* a step in a `KnowledgeGraph` fact whose edges carry numerical
+  coefficients.
+
+When the slide says "the AI discovered the law for falling bodies from
+80 noisy observations in 200 milliseconds, with a 95 % bootstrap CI
+that excludes zero on every term and an MDL certificate bounding the
+description length to 0.1 bits per sample" — `Scientist` is the
+primitive doing the work.
+
+### What it deliberately doesn't claim
+
+  * A general symbolic regressor.  The search is *linear-in-basis*:
+    coefficients are real-valued, the structure of the law is a
+    selection from a fixed library.  Genetic-programming-style
+    expression-tree search (PySR, Eureqa) is more general but more
+    expensive and lacks the closed-form guarantees STLSQ + AIC carry.
+  * A causal discovery primitive.  A discovered law fits observational
+    data; whether it is a *causal* law is what `CausalDiscoverer` and
+    `Refuter` are for.
+
+## Conjecturer — automated mathematical conjecture generation as a runtime primitive
+
+Every other learning primitive in this stack returns a **parametric**
+mechanism — real-valued coefficients on a fixed basis (`Scientist`), a
+stochastic next-symbol distribution (`Predictor`), a posterior over
+latent state (`Filterer`).  None of them returns an **integer-coefficient
+identity** — the kind of statement a working mathematician would call a
+*conjecture*: ``φ² − φ − 1 = 0``, ``π = 16·arctan(1/5) − 4·arctan(1/239)``,
+``ζ(2) = π²/6``.  An AI system that aspires to *discover laws* — not just
+fit functions — must also produce these.
+
+`agi.conjecturer.Conjecturer` closes that gap.  Given a stream of
+high-precision numerical observations and a set of named constants, it
+searches the lattice of integer linear combinations for one whose
+numerical value is indistinguishable from zero at the working precision —
+and re-evaluates each candidate at *doubled* precision to reject
+spurious matches.  Each surviving conjecture ships with
+
+  * a printable closed-form (`"phi2 −phi −one = 0"`);
+  * the integer coefficients ``mᵢ ∈ ℤ`` of the relation;
+  * the residual ``|Σ mᵢ · vᵢ|`` at the working precision;
+  * a *false-discovery* bound — the Bonferroni probability that a
+    relation of equal precision could be found by chance in the search
+    cube ``{‖m‖_∞ ≤ M}``;
+  * a *verification record* — the doubled-precision residual, which
+    must shrink consistently with the precision increase if the
+    identity is genuine;
+  * a SHA-256 fingerprint chain over every `observe` / `propose` /
+    `verify` / `report` call, compatible with `AttestationLedger`.
+
+```python
+from agi import Conjecturer
+import math
+
+cj = Conjecturer.create(precision_digits=14, seed=0)
+phi = (1 + math.sqrt(5)) / 2
+cj.observe("phi", phi)
+cj.observe("phi2", phi * phi)
+cj.with_constants(("phi2", "phi", "one"))
+for c in cj.propose(max_coeff=3):
+    print(c.signature, "  residual=", float(c.residual))
+# phi2 −phi −one = 0   residual= 0.0
+```
+
+```python
+# Machin's formula recovered from float values of arctan(1/5), arctan(1/239)
+cj = Conjecturer.create(precision_digits=14)
+cj.observe("a", math.atan(1/5))
+cj.observe("b", math.atan(1/239))
+cj.with_constants(("pi", "a", "b"))
+print(cj.propose(max_coeff=20)[0].signature)
+# pi −16·a +4·b = 0
+```
+
+```python
+# Single-constant closed-form recognition
+cj = Conjecturer.create(precision_digits=14)
+recs = cj.recognize_constant((1 + math.sqrt(5))/2, basis=("one", "sqrt5"))
+print(recs[0].expression)        # (one +sqrt5)/2
+```
+
+### Algorithms
+
+* **PSLQ — Ferguson-Bailey 1992** *A polynomial time, numerically stable
+  integer relation algorithm*.  Given a real vector finds either an
+  integer relation or a certificate of its absence.
+* **LLL — Lenstra-Lenstra-Lovász 1982** *Factoring polynomials with
+  rational coefficients*.  Lattice basis reduction with worst-case
+  guarantee ``‖b₁‖ ≤ 2^{(n-1)/4} λ₁(L)``.  Implemented in **exact
+  rational arithmetic** (Python `fractions`) with incremental
+  Gram-Schmidt updates so the answer is determined by the input
+  precision alone.
+* **Continued fractions — Khinchin 1935; Lochs 1964**.  Best rational
+  approximations under denominator budgets, with auto-truncation
+  before "huge" quotients (the empirical signal that the irrational
+  tail has decayed below working precision).
+* **Stern-Brocot tree.**  Binary descent for best rational with
+  denominator ``≤ D`` (Hardy-Wright 1979 §3.7).
+* **Ramanujan Machine — Raayoni et al. 2021** *Nature 590, 67–73*.
+  Numerical search → high-precision re-evaluation; only matches that
+  survive precision-doubling are reported.  `Conjecturer.verify`
+  implements exactly this discipline.
+* **Bonferroni FDR control.**  Search space ``(2M+1)ⁿ`` candidates;
+  each candidate's chance to be spurious at precision ``d`` is
+  ``≤ 2 · 10^{-d}``.  Per-conjecture false-discovery bound shipped
+  with every result.
+* **Plouffe's Inverse Symbolic Calculator (1995).**  Closed-form
+  recognition for a single real constant via LLL against an open
+  registry of named constants — extensible at runtime.
+
+### How it composes with the rest of the runtime
+
+| Question                                                                  | Composition                                                                              |
+|----------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| Is this measured constant a rational?                                      | `cj.recognize_constant(x)` returns CF + Stern-Brocot best rational with denom budget.    |
+| Is it a known transcendental combination?                                  | `cj.recognize_constant(x, basis=("pi","e","gamma",…))` runs LLL over the basis.          |
+| Does my fitted `Scientist.Law` have integer coefficients in disguise?      | Feed `law.coefficients` into `cj.observe(…)` + `cj.propose()`; integer relation ⇒ yes.   |
+| Did my conjecture survive higher-precision evaluation?                     | `cj.verify(conjecture, factor=2)` re-runs at doubled precision; sets `verified` flag.    |
+| Replay the discovery byte-for-byte for an audit.                           | `AttestationLedger` consumes the SHA-256 chain on every observe / propose / verify.      |
+| Refuse to act on a conjecture whose FDR bound exceeds my threshold.        | `Quantilizer.act` gates on `conjecture.fdr_bound ≤ ε`.                                   |
+| Plug a verified identity as an exact constraint into a state filter.       | `Filterer` substitutes ``Σ mᵢ vᵢ = 0`` as an algebraic invariant on the latent state.    |
+| Turn a verified identity into a typed compile-time constant in a tool.     | `Synthesizer` lifts `Conjecture.coeffs` into a static field of a generated Tool.         |
+| Record the identity as an edge with **integer** weight in a knowledge graph| `KnowledgeGraph.add_fact(c.signature, "holds", target, weight=c.coeffs)`.                |
+
+### Investor framing
+
+A coordination engine that can call `Conjecturer.propose(observations)`
+closes a loop none of the other primitives close: from *numbers* to a
+*combinatorial closed-form identity*.  `Scientist` returns a real-valued
+formula; `Conjecturer` returns an *integer-coefficient* formula whose
+discovery survives precision-doubling — the discipline that distinguishes
+a genuine identity from a numerical coincidence.
+
+When the slide says "the AI rediscovered Machin's formula from float-
+precision values of two arctangents, verified it at 30 decimal digits,
+and produced a SHA-256 audit chain that lets a regulator replay the
+discovery byte-for-byte" — `Conjecturer` is the primitive doing the
+work.  It is the runtime substrate for *AI for mathematics* (FunSearch,
+Ramanujan Machine, AlphaProof) reduced to a single composable call.
+
+### What it deliberately doesn't claim
+
+  * A general theorem prover.  An integer relation is a *conjecture* —
+    a candidate identity numerically consistent at the working
+    precision.  Formal proof of the relation requires a downstream
+    proof assistant (Lean, Coq, Isabelle).  `verify` raises the
+    *evidence*, not the *certainty*, of the claim.
+  * A free-form symbolic regressor.  The search is *linear-in-columns*:
+    the user supplies the columns (built-in constants + observations),
+    the primitive finds short integer coefficients.  Quotient or
+    exponential combinations require extending the column set.
+  * A high-precision arithmetic library.  Built-ins ship at ≤ 100
+    decimal digits; for higher precision the user supplies their own
+    evaluator via the `builtin_constants={"name": fn}` constructor
+    parameter.
+
+## Solver — CDCL satisfiability as a runtime primitive
+
+Every other primitive in this stack returns a *statistical* answer —
+a posterior, a forecast, a calibrated prediction interval, a ranked
+list of conjectures, a sparse linear law.  Statistical answers carry
+probabilities and finite-sample error bars but **never** a logical
+certificate.  A coordination engine driving safety-critical actuation
+needs the complementary capability: given a Boolean specification
+``φ`` over discrete decision variables, return either
+
+  * a satisfying assignment ``α`` with ``α ⊨ φ`` — a concrete plan, an
+    actuator setting, a hardware configuration — together with a
+    machine-checkable confirmation that ``φ(α) = ⊤``;
+  * a **proof of unsatisfiability** — a sequence of resolvents that
+    derives the empty clause from ``φ`` — guaranteeing that no
+    satisfying assignment exists, end of discussion.
+
+`agi.solver.Solver` is the runtime primitive that closes this gap.
+It is a **from-scratch Conflict-Driven Clause Learning (CDCL)** SAT
+solver with every refinement the SAT-competition-winning solvers of
+the last twenty years have settled on:
+
+  * two-watched-literal unit propagation;
+  * 1-UIP conflict analysis with self-subsuming-resolution clause
+    minimisation (Sörensson-Biere 2009);
+  * VSIDS variable activity with multiplicative decay
+    (Moskewicz et al. 2001);
+  * phase saving (Pipatsrisawat-Darwiche 2007);
+  * Glucose-style LBD clause deletion (Audemard-Simon 2009);
+  * Luby restart schedule (Luby-Sinclair-Zuckerman 1993);
+  * incremental SAT under assumptions, with deletion-based MUS
+    extraction (Belov-Marques-Silva 2012);
+  * UNSAT-core MaxSAT via selector-relaxation and cardinality
+    expansion (Fu-Malik 2006);
+  * DRAT-style RUP proof emission and an embedded **re-checker** so
+    every UNSAT verdict ships with a machine-verifiable certificate
+    (Wetzler-Heule-Hunt 2014);
+  * SHA-256 attestation chain over every `add_clause`, `assume`,
+    `solve`, `extract_mus`, `report` — compatible with the rest of the
+    runtime's `AttestationLedger`.
+
+```python
+from agi import Solver
+
+sv = Solver.create(seed=0)
+sv.reserve_vars(3)
+sv.add_clause([1, 2, -3])
+sv.add_clause([-1, 3])
+sv.add_clause([-2, -3])
+r = sv.solve()
+print(r.status)        # → "sat"
+print(dict(r.model))   # → {1: True, 2: False, 3: True}
+```
+
+```python
+# Pigeonhole 5→4 — UNSAT, with a DRAT proof verified by the runtime
+sv = Solver.create()
+sv.reserve_vars(20)
+def x(i, j): return (i-1)*4 + j
+for i in range(1, 6):
+    sv.add_clause([x(i, j) for j in range(1, 5)])
+for j in range(1, 5):
+    for i1 in range(1, 6):
+        for i2 in range(i1+1, 6):
+            sv.add_clause([-x(i1, j), -x(i2, j)])
+r = sv.solve()
+print(r.status)            # → "unsat"
+print(sv.check_proof())    # → True   (DRAT proof self-verified)
+```
+
+The cardinality layer encodes ``Σ lits ≤ k``, ``≥ k``, or ``= k`` via
+Sinz's sequential counter (Sinz 2005) — ``O(n·k)`` clauses, arc-
+consistent under unit propagation:
+
+```python
+sv = Solver.create()
+sv.reserve_vars(64)
+def x(r, c, v): return ((r-1)*4 + (c-1))*4 + v
+# 4×4 Sudoku: each cell / row / col / box has each value exactly once.
+for r in (1,2,3,4):
+    for c in (1,2,3,4):
+        sv.add_exactly([x(r,c,v) for v in (1,2,3,4)], 1)
+# … and so on for rows, columns, 2×2 boxes …
+sv.assume(x(1,1,1))
+sv.assume(x(2,3,3))
+print(sv.solve().status)   # → "sat"
+```
+
+The DSL layer (`var`, `land`, `lor`, `lnot`, `ximp`, `xeqv`, `xite`,
+`at_most`, `at_least`, `exactly`) compiles to CNF via the Tseitin
+transformation; fresh auxiliary variables are allocated strictly
+above the user-reserved range, so user-named variables and internal
+encodings never collide:
+
+```python
+from agi.solver import var, land, lor, lnot, ximp, exactly
+
+a, b, c = var(1), var(2), var(3)
+sv = Solver.create()
+sv.add_formula(land(lor(a, b), ximp(a, c)))   # asserts (a∨b) ∧ (a→c)
+sv.add_formula(exactly(2, [a, b, c]))         # exactly two of {a,b,c}
+print(sv.solve().status)                      # → "sat"
+```
+
+UNSAT-core extraction and MaxSAT round out the picture:
+
+```python
+# Minimal Unsatisfiable Subset over the assumption set
+sv.assume(-3); sv.assume(1); sv.assume(2)     # only -3 is essential
+sv.solve()
+print(sv.extract_mus())                       # → (-3,)
+
+# Weighted MaxSAT: minimum-weight violation under hard constraints
+sv = Solver.create(); sv.reserve_vars(3); sv.add_clause([1, 2, 3])
+cost, model, violated = sv.solve_max_sat(
+    soft=[[-1], [-2], [-3]],
+    weights=[10, 1, 1],
+)                                             # falsify a cheap soft
+print(cost, violated)                         # → 1  (2,)
+```
+
+### Algorithms
+
+* **Cook-Levin 1971/1973 — NP-completeness of SAT.**  Every decision
+  problem in NP reduces in polynomial time to a SAT instance, which
+  is why a fast SAT engine is a fast *general combinatorial reasoner*.
+* **Davis-Putnam-Logemann-Loveland 1962 — DPLL.**  Unit propagation
+  and pure-literal subsumption — the propagation skeleton of every
+  modern CDCL solver.
+* **Marques-Silva-Sakallah 1996 — GRASP.**  *Conflict analysis*: the
+  1-UIP asserting-clause-plus-backjump engine.
+* **Moskewicz-Madigan-Zhao-Zhang-Malik 2001 — Chaff / VSIDS + two-
+  watched literals.**  Variable activity + watched-literal unit
+  propagation — the data structures that made million-clause SAT
+  instances tractable.
+* **Audemard-Simon 2009 — Glucose / LBD.**  *Literal Block Distance*
+  as the empirical correlate of learnt-clause usefulness; periodic
+  deletion of high-LBD clauses keeps the database bounded.
+* **Luby-Sinclair-Zuckerman 1993 — Universal restart schedule.**
+  Worst-case-optimal Las Vegas restart sequence.
+* **Sinz 2005 — Sequential cardinality encoding.**  ``O(n·k)`` clauses
+  for ``Σ lits ≤ k``; arc-consistent under unit propagation.
+* **Tseitin 1968 — Polynomial CNF transformation.**  Every
+  propositional formula compiles to an equisat CNF in linear time
+  via fresh auxiliary variables.
+* **Fu-Malik 2006 — UNSAT-core MaxSAT.**  Iterated selector-relaxation
+  cardinality tightening.
+* **Belov-Marques-Silva 2012 — Deletion-based MUS extraction.**
+  Worst-case linear in the assumption-set size.
+* **Wetzler-Heule-Hunt 2014 — DRAT proof system.**  RUP-based clause
+  addition with deletion records — the proof format every SAT
+  competition since 2014 has adopted.
+
+### How it composes with the rest of the runtime
+
+| Question                                                                | Composition                                                                              |
+|--------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| Does the synthesised tool's precondition hold in the current world?      | `sv.solve(precondition)` — SAT ⇒ a concrete world; UNSAT ⇒ a precondition obligation.    |
+| Is my fitted `Scientist.Law` falsifiable by a Boolean side-condition?    | Encode the sign / parity constraints; `Solver.solve(¬law_constraint)` — SAT ⇒ refutation.|
+| What is the minimum-cost discrete plan under hard safety clauses?         | `Solver.solve_max_sat(soft, weights=utilities, hard=safety_clauses)`.                    |
+| Which assumptions in my context window are *jointly* inconsistent?        | `sv.extract_mus()` — returns a smallest UNSAT subset, the "reason for inconsistency".    |
+| Replay an UNSAT verdict byte-for-byte for a regulator.                    | `AttestationLedger` consumes the SHA-256 chain; `sv.check_proof()` re-verifies the DRAT. |
+| Refuse to act on a Boolean obligation whose UNSAT proof exceeds budget.   | `sv.solve(max_conflicts=B)`; `Quantilizer.act` gates on `result.status == "sat"`.        |
+| Encode a `Topologist` persistence-bar witness as a Boolean obligation.    | Tseitin-encode the witness predicate via `solver_var`, `solver_and`, `solver_at_most`.   |
+| Verify the integer-coefficient `Conjecturer` identity has a sign pattern. | Encode the sign predicate as CNF, `Solver.solve` over a discrete sample space.           |
+
+### Investor framing
+
+When the slide says *"the AI handed the auctioneer a discrete bid
+schedule together with a machine-checked proof that no other
+schedule satisfies the regulator's hard constraints at strictly
+lower cost"* — the SAT solver is the primitive doing the work.
+``Solver.solve_max_sat`` returns the minimum-cost plan, ``check_proof``
+re-verifies the UNSAT certificate of every cheaper alternative, and
+the attestation ledger replays the derivation byte-for-byte.
+
+The same primitive is what makes *"formally verified AI safety"*
+more than a slogan.  ``Solver.solve(¬unsafe_state)`` either returns
+SAT — the AI cannot enter that state — or a counter-example showing
+exactly which inputs do.  No statistical caveat, no calibration
+budget; a Boolean certificate.
+
+### What it deliberately doesn't claim
+
+  * Not an SMT solver.  Variables are pure Boolean; integer,
+    bit-vector, array, or floating-point theories require a
+    downstream Z3, cvc5, or Yices.
+  * Not a parallel / portfolio solver.  Every search call is single-
+    threaded; coordinators wanting portfolio behaviour should run
+    ``Solver`` instances under :class:`Coordinator` and aggregate.
+  * Not a probabilistic / weighted model counter.  Exact ``#SAT`` is
+    ``#P``-complete and beyond the deterministic-decision contract
+    of this primitive.
+  * Not a competitive solver on the SAT-Race scale.  The
+    implementation is in pure Python and intentionally readable.
+    It is the *interface* and *audit chain* that are the
+    contribution; a coordination engine can swap in an industrial
+    back-end behind the same public API.
+
+## Planner — SAT-compiled classical planning as a runtime primitive
+
+A coordination engine driving discrete actuation needs to do more than
+*react* to the current state — it needs to *plan* a sequence of
+actions that achieves a goal.  None of the primitives shipped so far
+returns a *plan*; what they return is a posterior, a forecast, a
+discovered law, a satisfying assignment.
+
+`agi.planner.Planner` closes that gap.  Given a STRIPS-style domain
+(Boolean **fluents**, **actions** with positive/negative preconditions
+and add/delete effects, an **initial state**, a **goal**), it returns
+either
+
+  * a **plan** — a finite sequence of actions whose deterministic
+    execution from the initial state achieves the goal, together with
+    an explicit horizon (length), an action cost, and a SHA-256
+    attestation chain that a regulator can replay byte-for-byte;
+  * or, given an explicit horizon bound, a **proof that no plan of
+    bounded length exists** — the DRAT proof emitted by the underlying
+    :class:`Solver` on the bounded plan-existence formula.
+
+The `Planner` sits one composition layer above `Solver`: every plan
+query is compiled to a SAT instance via the Kautz-Selman-1992
+*SATPlan* encoding, dispatched to `Solver`, and the returned model
+(or UNSAT proof) is decoded back into the planning vocabulary.
+
+```python
+from agi import Planner
+
+pl = Planner.create(seed=0)
+pl.add_fluent("at_A")
+pl.add_fluent("at_B")
+pl.add_action("move_AB", pre=["at_A"], add=["at_B"], delete=["at_A"])
+pl.set_initial({"at_A": True})
+pl.set_goal({"at_B": True})
+plan = pl.solve()
+print(plan.actions)        # → ("move_AB",)
+print(plan.horizon)        # → 1
+print(plan.cost)           # → 1
+```
+
+```python
+# Tour: visit A, B, C, D starting at A
+for loc in "ABCD":
+    pl.add_fluent(f"at_{loc}")
+    pl.add_fluent(f"v_{loc}")
+for X in "ABCD":
+    for Y in "ABCD":
+        if X != Y:
+            pl.add_action(f"go_{X}_{Y}",
+                          pre=[f"at_{X}"],
+                          add=[f"at_{Y}", f"v_{Y}"],
+                          delete=[f"at_{X}"])
+pl.set_initial({"at_A": True, "v_A": True})
+pl.set_goal({f"v_{X}": True for X in "ABCD"})
+plan = pl.solve()
+# horizon = 3 — minimum number of moves to visit B, C, D from A
+```
+
+```python
+# Parallel mode: non-interfering actions co-fire at the same step
+pl.solve(parallel=True).parallel_steps  # → (("do_a","do_b","do_c","do_d"),)
+```
+
+The relaxed-reachability machinery is exposed as composable building
+blocks: ``reachable_fluents`` returns the delete-relaxed-reachable
+set, ``h_max`` returns a Bonet-Geffner-2001 lower bound on plan
+length, ``relaxed_plan`` returns a greedy heuristic plan in the
+delete-relaxed problem.
+
+```python
+pl.h_max()              # → 0..∞   lower bound on optimal horizon
+pl.reachable_fluents()  # → frozenset of delete-relaxed reachable fluents
+pl.relaxed_plan()       # → heuristic action sequence (FF-style)
+```
+
+### Algorithms
+
+* **Fikes-Nilsson 1971 — STRIPS.**  Actions are
+  ``(precondition, add-effect, delete-effect)`` triples over a
+  finite Boolean state space; the canonical classical-planning
+  model.
+* **Kautz-Selman 1992 — Planning as satisfiability.**  Bounded-length
+  plan existence is equivalent to satisfiability of a CNF whose
+  size grows linearly in horizon × |actions|.
+* **McCain-Turner 1997 — Explanatory frame axioms.**  Reduces the
+  encoding by a factor of |fluents| versus the original frame
+  axioms; `Planner` ships exactly this form.
+* **Blum-Furst 1997 — Graphplan / mutex propagation.**  The layered
+  reachability structure underlying the ``h_max`` heuristic and
+  the bounded-horizon iteration schedule.
+* **Bonet-Geffner 2001 — h_max heuristic.**  Cost-of-cheapest-
+  achievement over the delete-relaxed graph; the lower bound on
+  optimal plan length used to *start* iterative deepening at the
+  earliest feasible horizon.
+* **Hoffmann-Nebel 2001 — FF / relaxed plan extraction.**  Greedy
+  regression through the layered structure for an upper-bound
+  heuristic plan.
+* **Rintanen 2012 — Madagascar parallel-action planning.**  Multiple
+  non-interfering actions co-fire at the same timestep — the
+  encoding ``parallel=True`` uses.
+
+### How it composes with the rest of the runtime
+
+| Question                                                                | Composition                                                                              |
+|--------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| What sequence of discrete actions achieves my goal under hard safety?    | `Planner.solve()` — returns a plan of minimum horizon; the underlying SAT solver       produces a DRAT certificate of no-shorter-plan-exists. |
+| What is the lower bound on action cost before the agent commits?         | `Planner.h_max()` — Bonet-Geffner lower bound; the coordinator gates on this.            |
+| Refuse to act unless the plan is *optimal*.                              | `Planner.solve_optimal()` ⇒ horizon equals the underlying lower bound.                   |
+| Is the goal *provably* infeasible?                                       | `Planner.h_max()` raises `GoalUnreachable` when the relaxed-reachable set excludes it.   |
+| What's the maximum-parallelism schedule of the plan?                     | `Planner.solve(parallel=True).parallel_steps` — Rintanen-style mutex-respecting layers.  |
+| Replay the plan derivation byte-for-byte for a regulator.                | `AttestationLedger` consumes the SHA-256 chain; the underlying `Solver.check_proof`       re-verifies the bounded-horizon UNSAT witness. |
+| Compose with `Synthesizer` to lift each action into a typed tool call.   | `Synthesizer.compile(plan.actions)` → an executable tool-call trace.                      |
+| Compose with `Quantilizer` to gate execution on plan optimality.         | `Quantilizer.act` checks `plan.horizon == pl.h_max()` before dispatch.                    |
+
+### Investor framing
+
+When the slide says *"the agent returned an executable 7-step plan
+for the warehouse robot, together with a machine-checkable proof
+that no 6-step plan exists under the operator's hard-safety
+constraints"* — `Planner.solve_optimal` is the primitive doing the
+work.  The plan is the deliverable; the UNSAT certificate of every
+shorter horizon is the *audit*.
+
+For multi-agent coordination, `Planner` is the *discrete control
+plane* of every actuator the runtime drives: the LLM proposes a
+goal, `Planner` returns the minimum-cost executable sequence
+respecting hard safety clauses, `Coordinator` dispatches the steps
+in parallel, and `AttestationLedger` records every state transition
+end-to-end.
+
+### What it deliberately doesn't claim
+
+  * Not a numeric / hybrid / temporal planner — fluents are pure
+    Boolean; numeric resources, durative actions, or timed initial
+    literals require a downstream PDDL+ engine.
+  * Not a probabilistic / MDP planner — the underlying solver is
+    deterministic Boolean SAT.  For probabilistic planning use
+    :class:`~agi.coordinator.Coordinator` over a learnt world model.
+  * Not a competitive IPC planner.  The implementation is in pure
+    Python and intentionally readable; a coordination engine
+    wanting a high-performance back-end swaps in Fast Downward or
+    Madagascar behind the same public API.
+
+## Inducer — Levin universal search as a runtime primitive
+
+Every primitive in this runtime *executes* programs; **Inducer searches
+the space of all programs.**  Where `Synthesizer` commits to a typed
+DSL and `Solver` to a CNF, Inducer commits to *no model class at all* —
+only to a small stack-based universal VM — and pays the Levin-search
+bound for that generality.  This is the operation that lets the
+coordination engine ask *"is there any program at all that explains
+this trace?"* without first asking *"what kind of program?"*.
+
+The universal VM has 15 active opcodes packed into a 4-bit alphabet
+(`HALT`, `PUSH0/1/2/-1`, `INP`, `DUP/SWP/DRP`, `ADD/SUB/MUL/MOD/NEG`,
+`JNZ`).  Programs are enumerated lexicographically; the discovered
+program comes with a **Kraft mass** (universal-prior contribution
+`2^{-l(p)}`), a **Levin complexity** (`l(p) + log₂ t(p)`, a
+constructive upper bound on `Kt(spec)`), an **Occam PAC bound**
+(Blumer-Ehrenfeucht-Haussler-Warmuth), and a **SHA-256 certificate**
+chaining VM, spec, and program.
+
+::
+
+    >>> from agi.inducer import Inducer, InducerConfig, Spec, induce
+    >>> rep = induce([(2, 4), (3, 9), (5, 25), (7, 49)])  # n -> n²
+    >>> rep.program.disassemble()           # "INP DUP MUL"
+    >>> rep.universal_prior_mass()          # 0.125  (= 2^-3)
+    >>> rep.levin_complexity()              # 12.82 bits
+    >>> rep.occam_bound(delta=0.05)         # PAC ε for held-out generalisation
+    >>> rep.eval([13])                       # 169
+    >>> rep.certificate                      # tamper-evident SHA-256
+
+Two search regimes:
+
+  * **Iterative deepening (default)** — enumerate every program of
+    length 1, 2, ..., L with a fixed per-program step budget.
+    Deterministic, exhaustive, returns the *minimum-length* solver.
+
+  * **Levin universal search** (`mode="levin"`) — Levin's 1973
+    dovetail: phase `i` allocates total budget ``T_i``, and a program
+    of length ``L`` runs for ``⌊T_i / 2^L⌋`` steps.  If any program
+    ``p*`` of length ``L*`` solves the spec in ``T*`` steps, Inducer
+    finds *some* solver in total cost ``R(p*) ≤ K_U · 2^{L*} · T*``
+    (Levin 1973, Theorem 1).  This is the strongest worst-case bound
+    on program search known to be achievable.
+
+A Solomonoff model average — `agi.inducer.kraft_normalised_posterior`
+— turns a list of consistent programs into a Kraft-normalised
+posterior, the prior a coordination engine should feed into Predictor
+or Forecaster for downstream calibration.
+
+Composition with the rest of the runtime:
+
+  * **Predictor** — Predictor's CTW estimates the universal prior over
+    *next symbols*; Inducer estimates it over *programs*.  Feed
+    Inducer's discovered program back into Predictor's prior to
+    accelerate compression on the same source.
+  * **Synthesizer** — Synthesizer searches a typed DSL with PAC
+    bounds; Inducer searches the *unrestricted* universal VM with the
+    Levin bound.  A coordination engine picks Inducer when the DSL is
+    unknown, Synthesizer when the DSL is known.
+  * **Compressor** — Inducer's program length on a string ``x`` is an
+    *upper bound* on ``Kt(x)`` and feeds NCD with tighter (because
+    constructive) numerators.
+  * **Conjecturer** — every Inducer-discovered program is a candidate
+    *generative law* for an observation set; Conjecturer's e-value
+    framework lifts the program to a falsifiable law.
+
+What it does *not* do (yet):
+
+  * No neural-guided search (Schmidhuber's *OOPS* prior bias).  The
+    enumeration order is pure lexicographic; a learned prior over
+    opcodes is the obvious next acceleration.
+  * No partial-evaluation pruning across examples.  Each (program,
+    example) pair is run independently.
+  * No string / list opcodes — the VM operates on integers only.  Add
+    typed opcodes to extend the language.
+
+## Verifier — LCF-style proof certificate kernel as a runtime primitive
+
+The other primitives in this runtime each *produce* a certificate
+alongside their answer — Reasoner emits a resolution refutation, Solver
+emits a DRUP-style unsat trace, Synthesizer emits a CEGIS verification
+report, Conjecturer emits a falsifiable derivation. Re-checking those
+certificates *inside the primitive that generated them* gains no
+independence: a bug in Reasoner's proof reconstruction silently passes
+Reasoner's own verifier. The `Verifier` primitive is the runtime's
+**independent kernel** for those certificates — the **LCF discipline**
+(Milner 1972; Pollack 1998 *de Bruijn criterion*) reduced to a single
+runtime call.
+
+The trust model is the classical LCF one (HOL, Isabelle, Coq, Lean):
+
+  * a tiny **kernel** with a fixed enumeration of ~22 inference rules
+    (1 resolution + 20 natural-deduction + 1 rewrite-at-position);
+  * every certificate is a sequence of kernel calls; the verifier
+    only ever applies a kernel call, never a derived rule, never
+    "trusts" a cached lemma;
+  * the *trusted computing base* is therefore exactly the kernel —
+    ~250 lines, auditable in an afternoon — and *nothing else*.
+
+Three proof systems are shipped, each with its own re-derivation path:
+
+  * **Resolution proofs over CNF** (Robinson 1965; Goldberg-Novikov
+    2003 *RUP*; Heule-Hunt-Wetzler 2013 *DRAT*).  Every step claims
+    that two parent clauses (original or earlier resolvent) resolve
+    on a positive-variable pivot to a stated resolvent; the kernel
+    re-runs the resolution and matches structurally.  Verification
+    succeeds iff every step's resolvent matches and the final
+    resolvent is the empty clause (⊥).
+  * **Natural-deduction proofs over propositional logic**
+    (Gentzen 1935; Prawitz 1965).  Each step names one of the
+    twenty kernel rules — ``assumption``, ``premise``,
+    ``and_intro/elim_{l,r}``, ``or_intro_{l,r}``, ``or_elim``,
+    ``imp_intro/elim`` (modus ponens), ``not_intro/elim``,
+    ``bot_elim`` (ex falso quodlibet), ``iff_intro/elim_{l,r}``,
+    ``lem`` (classical excluded middle), ``dne`` (double-negation
+    elimination), ``top_intro``, ``repeat`` — and the kernel
+    re-derives the resulting sequent ``Γ ⊢ φ``.  Verification
+    succeeds iff every kernel re-derivation succeeds, the final
+    formula matches the goal, and no undischarged assumptions
+    remain outside the global premise set.  An
+    `enforce_intuitionistic=True` flag rejects ``lem`` and ``dne``
+    so a coordination engine can ask the stricter question "does
+    this hold constructively?"
+  * **Equational rewriting proofs** (Birkhoff 1935; Knuth-Bendix
+    1970; Baader-Nipkow 1998).  Axioms are pairs ``ℓ = r`` with
+    optionally declared variables; each step rewrites the current
+    term at a given position by the chosen axiom in a chosen
+    direction (forward or backward) under a given substitution.
+    The kernel matches the substituted axiom side against the
+    sub-term at the position and replaces it; verification succeeds
+    iff the final term equals the target ``rhs``.
+
+Every report carries:
+
+  * `status`: one of ``VERIFIED`` / ``FAILED`` / ``MALFORMED``;
+  * `failed_step`: 0-based index of the first failing step (None on
+    success);
+  * `failure_reason`: human-readable, includes the kernel rule's own
+    error message ("pivot variable 5 not present in clause [1, 2, 3]",
+    "imp_intro: discharged formula p not in premise context", etc.);
+  * `certificate`: HMAC-SHA256 over the canonical serialisation of every
+    kernel step in proof order — re-runnable by `AttestationLedger`
+    without re-executing the kernel;
+  * `kernel_calls`, `tcb_lines`, `elapsed_seconds`: self-describing
+    fields a coordinator can quote in an attestation ("this output is
+    backed by 22 kernel rules across 250 lines of trusted code, verified
+    in 1.4 ms over 47 kernel calls").
+
+Composition is intentional: Reasoner's `last_resolution_proof()` plugs
+directly into `Verifier.verify_resolution`; Conjecturer's derivations
+plug into `Verifier.verify_natural_deduction`; Synthesizer's CEGIS
+counter-examples can be promoted into ND derivations and re-verified;
+`Driver` can gate any high-stakes return value behind
+``Verifier.verify_*`` returning ``VERIFIED``, giving the coordination
+engine a *hard* safety boundary that composes with conformal /
+quantile / fuzz gates.
+
+```python
+>>> from agi import (
+...     Verifier, VerifierConfig, VerifierCNFFormula,
+...     VerifierResolutionProof, VerifierResolutionStep,
+...     verifier_tcb_summary,
+... )
+>>> V = Verifier(VerifierConfig(hmac_key=b"runtime-attestation"))
+>>> f = VerifierCNFFormula.of([[1, 2], [-1], [-2]])
+>>> proof = VerifierResolutionProof((
+...     VerifierResolutionStep(parents=(0, 1), pivot=1, resolvent=(2,)),
+...     VerifierResolutionStep(parents=(3, 2), pivot=2, resolvent=()),
+... ))
+>>> rep = V.verify_resolution(f, proof)
+>>> rep.status, rep.kernel_calls
+('VERIFIED', 2)
+>>> verifier_tcb_summary()["kernel_rule_count"]
+22
+```
+
+The primitive is **stdlib-only**: no Z3, no Lean, no Coq, no
+``hypothesis``.  Every kernel rule is one or two Python ``if``
+statements; the inner loop is a flat ``for`` over the proof steps with
+a small dispatch table.  Verification is linear in proof length —
+millions of steps verify in well under a second on commodity hardware.
+
+## Sketcher — bounded-memory streaming sketches as a runtime primitive
+
+Every other primitive in this runtime quietly assumes that someone can
+keep the whole stream in memory.  ``Predictor`` keeps every prefix,
+``Forecaster`` keeps every prediction-target pair, ``DriftSentinel``
+keeps a reference window of arbitrary size, ``Auditor`` keeps every
+event, ``Calibration`` keeps every score.  At laboratory scale this
+is fine.  At runtime scale — millions of events per second through a
+coordination engine over weeks of autonomous operation — it is
+fatal.  A production runtime cannot keep everything; it must keep a
+**sketch** with provable, finite-sample-valid error bounds.
+
+`Sketcher` is the runtime's **bounded-memory streaming primitive**.
+Given a stream of items and a sketch kind, it returns an answer with
+an explicit `(ε, δ)` error certificate, the exact byte count of the
+state it consumed, and an HMAC over the canonical state for
+tamper-evidence.  Eleven sketches ship in one module, every one of
+them pure-stdlib:
+
+  * **Misra-Gries (1982)** heavy-hitters with `k` counters —
+    deterministic, every item with frequency above `N / (k + 1)`
+    survives, additive error ≤ `N / (k + 1)` on every item.
+  * **Count-Min Sketch (Cormode-Muthukrishnan 2005)** with optional
+    **conservative update (Estan-Varghese 2003)** — ε-additive
+    over-estimate with probability ≥ 1 − δ at shape
+    `w = ⌈e/ε⌉, d = ⌈ln 1/δ⌉`.
+  * **Count Sketch (Charikar-Chen-Farach-Colton 2002)** — signed-hash
+    median estimator, *unbiased* point query with ℓ₂-norm error.
+  * **AMS / tug-of-war (Alon-Matias-Szegedy 1996)** for the second
+    frequency moment `F₂`.
+  * **HyperLogLog (Flajolet-Fusy-Gandouet-Meunier 2007)** with
+    **HLL++ linear-counting correction (Heule et al. 2013)** —
+    cardinality estimation with relative standard error
+    ≈ `1.04 / √(2^p)` using `2^p` one-byte registers.
+  * **KLL (Karnin-Lang-Liberty 2016)** optimal mergeable quantile
+    sketch — `ε ≈ √log(1/δ) / k` simultaneous rank error over every
+    quantile, with weight-preserving pair-and-promote compaction
+    and random-orphan handling for sorted-stream symmetry.
+  * **Greenwald-Khanna (2001)** deterministic quantile sketch —
+    additive rank error ≤ ε·N, no randomness.
+  * **Vitter (1985) reservoir sampling** (Algorithm R) — uniform
+    sample of size `k` from an unbounded stream.
+  * **Efraimidis-Spirakis (2006) weighted reservoir** (A-Res) —
+    weighted-without-replacement sample with inclusion probability
+    proportional to weight.
+  * **Bloom (1970) filter** — probabilistic set membership with
+    one-sided false-positive rate matching the configured target.
+  * **Exponential histogram (Datar-Gionis-Indyk-Motwani 2002)** —
+    `ε`-relative-error sliding-window counting in
+    `O((1/ε) log²(εN))` space.
+
+The pitch reduced to a runtime call:
+
+```python
+>>> from agi.sketcher import Sketcher
+>>> # Cardinality of a 200k-distinct-item stream in 4 KB of state
+>>> sk = Sketcher.hll(precision=12)
+>>> for x in range(200_000):
+...     sk.update(f"item_{x}")
+>>> sk.cardinality()
+204533.0   # rel-error 2.3%; theoretical RSE ≈ 1.6%
+>>> sk.report().n_bytes
+4111
+>>> sk.report().epsilon       # actual relative-standard-error guarantee
+0.01625
+```
+
+Every sketch is **mergeable** where the underlying algorithm admits a
+mergeable summary — Misra-Gries, Count-Min, Count-Sketch, HLL, KLL,
+GK, Bloom, AMS-F2 — meaning a distributed coordination engine can
+shard a stream across N workers, sketch independently, and combine
+the sketches into one answer of the same asymptotic quality as a
+serial sketch over the union:
+
+```python
+>>> workers = [Sketcher.hll(precision=14, seed=0) for _ in range(8)]
+>>> for w in workers:
+...     for _ in range(50_000):
+...         w.update(some_id())
+>>> union = Sketcher.hll(precision=14, seed=0)
+>>> for w in workers:
+...     union.merge(w)
+>>> union.cardinality()
+# distinct ids across all 8 shards, identical to a single-sketch run
+```
+
+The report carries:
+
+  * `estimate`: kind-specific — an int for cardinality / count, a
+    dict for quantiles, a list for samples / heavy-hitters;
+  * `epsilon`, `delta`: the *actual* certificate values that follow
+    from the sketch's configured shape, not the user's target;
+  * `n_items`, `n_bytes`, `capacity`: measured state footprint a
+    coordinator can quote to a memory-budget admission gate;
+  * `mergeable`: whether this kind admits the distributed-shard merge;
+  * `certificate`: HMAC over the canonical state for tamper-evidence
+    (replayable by `AttestationLedger`).
+
+Composition with the rest of the runtime is the design intent:
+
+  * **CountMin → DriftSentinel** — low-memory drift detection over
+    high-cardinality identifiers (per-id frequencies under
+    bounded state).
+  * **HyperLogLog → Auditor** — distinct-counts of compliance-
+    relevant entities (users, models, datasets) in a long-lived
+    audit ledger.
+  * **MisraGries → Compressor** — heavy-hitter symbol weights as
+    an empirical prior for MDL code-book construction.
+  * **KLL → Forecaster** — streaming quantile-binned calibration
+    histograms updated on every observation.
+  * **Reservoir → ExperimentDesigner** — unbiased eval-pool
+    sampling from a vastly larger candidate stream.
+  * **Bloom → ToolSynth** — dedup of candidate synthesised programs
+    without storing every hash.
+  * **F2Sketch → CausalDiscoverer** — streaming approximation of
+    second-moment-based mutual information.
+  * **ExpHistogram → Forecaster** — sliding-window event counts for
+    short-horizon predictions.
+
+The primitive is **stdlib-only**: no NumPy, no probabilistic-counters
+library, no fast hash dependency.  Hashes go through `hashlib.blake2b`
+keyed by a per-salt 8-byte integer (cheap, pairwise-independent in
+practice); PRNG seeds are scrambled through SplitMix64 before
+xorshift so small consecutive seeds give strongly decorrelated streams
+(important for federated sketching with worker-id-derived seeds).
+
+## Analogist — structure-mapping analogical reasoning as a runtime primitive
+
+Every other primitive in this runtime treats reasoning **within** a
+domain.  ``Predictor`` predicts the next symbol of a single stream.
+``Scientist`` recovers a closed-form law from a single table.
+``Conjecturer`` proposes a single proposition.  ``Inducer`` searches
+for one program that fits one specification.  But the core operation a
+coordination engine performs when it lifts a lesson learned in one
+ticket into the policy that handles the **next** ticket — the
+operation a debugger performs when it recognises that the bug in
+front of it has the same shape as a bug it has seen before, the
+operation a researcher performs when she carries the structure of an
+argument from fluid dynamics into traffic flow — is **analogy**.
+
+`Analogist` is the runtime primitive that performs that operation.
+Given two relational descriptions — a **base** (well-known, richly
+structured) and a **target** (unfamiliar, possibly incomplete) — it
+returns a small set of *global mappings*, each a one-to-one,
+parallel-connected alignment between base and target objects, ranked
+by a Structural Evaluation Score that rewards **systematicity**
+(Gentner 1983): deep, interconnected relational structure beats
+isolated attributes.  Each global mapping comes with a list of
+**candidate inferences** — expressions present in the base whose
+entities have already been mapped to the target, projected as
+predictions about what *should* be true in the target if the analogy
+is sound.
+
+### Algorithms shipped
+
+  * **SME (Falkenhainer-Forbus-Gentner 1989)**: the canonical
+    structure-mapping engine.  Three stages: (1) enumerate local
+    match hypotheses under tiered identicality, (2) score them with
+    a Structural Evaluation Score that propagates *parental support*
+    down the relation tree (`SES(child) += λ · SES(parent)`),
+    (3) greedy best-first search over consistent unions of match
+    hypotheses under the one-to-one and parallel-connectivity
+    constraints.
+  * **MAC/FAC (Forbus-Gentner-Law 1995)** retrieval: a fast content-
+    vector dot-product (Many Are Called) selects a short-list from a
+    long-term memory of cases; full SME (Few Are Chosen) ranks the
+    short-list by structural similarity.  The cost profile that lets
+    the runtime keep a large case base and still answer in bounded
+    time.
+  * **ACME (Holyoak-Thagard 1989)** as an alternative engine: a
+    constraint-satisfaction network that relaxes structural,
+    semantic, and pragmatic constraints simultaneously.  Selected
+    via `analogist_acme()`.
+  * **Copycat-style proportional analogy (Hofstadter 1985;
+    Mitchell 1993)**: the small `ProportionalAnalogy` sub-primitive
+    that solves letter-string `a:b :: c:?` problems by rule
+    enumeration — the runtime's symbol-stream pattern-transfer
+    operator.
+
+The pitch reduced to a runtime call:
+
+```python
+>>> from agi.analogist import sme
+>>> analogist = sme(hmac_key=b"secret")
+>>> analogist.add_description("solar", [
+...     ("cause",
+...        ("attracts", "sun", "planet"),
+...        ("revolves_around", "planet", "sun")),
+...     ("greater", ("mass", "sun"), ("mass", "planet")),
+...     ("greater", ("temperature", "sun"), ("temperature", "planet")),
+...     ("yellow", "sun"),
+... ])
+>>> analogist.add_description("atom", [
+...     ("cause",
+...        ("attracts", "nucleus", "electron"),
+...        ("revolves_around", "electron", "nucleus")),
+...     ("greater", ("mass", "nucleus"), ("mass", "electron")),
+... ])
+>>> report = analogist.match("solar", "atom")
+>>> dict(report.mappings[0].entity_map)
+{'sun': 'nucleus', 'planet': 'electron'}
+>>> report.mappings[0].inferences
+((('greater', ('temperature', 'nucleus'), ('temperature', 'electron')),
+  ('greater', ('temperature', 'sun'), ('temperature', 'planet'))),
+ (('yellow', 'nucleus'), ('yellow', 'sun')))
+```
+
+The mapping is sound under two structural constraints — **one-to-one**
+(no base object maps to two target objects and vice versa) and
+**parallel connectivity** (matched relations have matched arguments,
+recursively) — both of which are certified by the report.  A
+coordinator that wants to admit the analogy into its policy has a
+verifier; a coordinator that wants to reject it has a counter-example.
+
+### How it composes with the rest of the runtime
+
+  * The candidate inferences are *predictions*.  Hand them to
+    `Refuter` for falsification — a coordinator that has refuted
+    "yellow(nucleus)" on the canonical solar-atom analogy has
+    demonstrated that mere-appearance transfer is unsound; the
+    surviving inference "greater(temperature, nucleus, electron)"
+    is the one to operationalise.
+  * `Conformal` can wrap any single transferred prediction in a
+    distribution-free coverage interval — turning "the analogy
+    suggests X" into "the analogy suggests X with probability ≥ 95%
+    that the true value lies in [lo, hi]".
+  * `MAC/FAC` retrieval is the long-term-memory side of the
+    coordinator's case base.  Combined with `Skills` /
+    `SelfEvalBank`, the runtime can lift a successful skill from one
+    ticket into a candidate skill for a structurally analogous one
+    — *cross-ticket learning by analogy*.
+  * The `score` decomposes by predicate kind (`higher_order`,
+    `relation`, `function`, `attribute`).  A `Strategist` that
+    weighs analogical evidence against direct evidence has the
+    per-kind contribution to threshold on.
+  * Every report carries an HMAC `certificate` over the canonical
+    mapping; the `AttestationLedger` can replay an entire match
+    byte-for-byte from the certificate alone, so a coordinator
+    publishing a transferred lesson has a tamper-evident record
+    that the analogy it acted on is the analogy it explains.
+
+### Investor framing
+
+Today's frontier LLMs are notoriously brittle on analogy benchmarks
+(Raven's Progressive Matrices, ARC, Mitchell's letter-string
+problems): they pattern-match on surface tokens but fail to align
+*relational structure*.  Lovett & Forbus 2017 showed that classical
+structure-mapping accounts for human performance on exactly the
+problems on which LLMs collapse.  `Analogist` is the runtime's
+**structural-alignment co-processor** — a deterministic, certificate-
+producing primitive a coordination engine can call whenever a
+language model needs a sound way to *transfer* a lesson across a
+domain boundary.  It is the operational rendering of Hofstadter &
+Sander's (2013) claim that analogy is not a peripheral cognitive
+trick but the *core* of cognition, made callable at the same tier
+as `Solver` and `Planner`.
+
+### What it deliberately doesn't claim
+
+  * `Analogist` does not perform *induction* over expressions — that
+    is the job of `Inducer` (Levin universal search) and `Scientist`
+    (sparse symbolic-law recovery).  Analogist transports an existing
+    structure across a domain boundary; it does not invent the
+    structure.
+  * It is not a similarity metric.  Two descriptions can score
+    arbitrarily low on cosine similarity and still admit a perfect
+    SME mapping (Markman & Gentner 1993); the runtime exposes both
+    answers separately so a coordinator can pick the right one.
+  * The candidate inferences are *hypotheses*.  They are not
+    asserted true; they are emitted into the runtime's verification
+    pipeline (`Refuter`, `Conformal`, `Verifier`) so the
+    coordination engine has an explicit checkpoint between "the
+    analogy proposes X" and "the runtime claims X".
+
+## Searcher — bounded-anytime certified tree search as a runtime primitive
+
+Every other primitive in this runtime **consumes** a question.  Predictor
+gets a stream and returns the next symbol; Solver gets a CNF and returns
+SAT/UNSAT; Inducer gets a spec and returns a program.  But the operation
+that decides **which question to ask next**, given a state, a set of
+admissible actions, and a means of evaluating their consequences, is
+*search*.  Search is the canonical primitive of every agent that acts
+under uncertainty over a tree of options — **AlphaZero is search,
+MuZero is search, Stockfish is search**, the A\* planner inside a
+self-driving stack is search, and the move-list a debugger considers
+in front of a bug is search.  `Searcher` is the runtime's *bounded,
+anytime, certified* version of that operation, exposed as a single
+primitive a coordination engine can drive with budgets it must respect.
+
+The pitch reduced to a runtime call:
+
+```python
+>>> from agi import Searcher, SearcherConfig
+>>> sv = Searcher(SearcherConfig(algorithm="puct", max_iterations=4096))
+>>> report = sv.search(
+...     root_state,
+...     actions=lambda s: s.legal_moves(),
+...     apply=lambda s, a: s.play(a),
+...     terminal=lambda s: s.is_terminal(),
+...     reward=lambda s: s.reward(),
+...     policy_prior=lambda s, A: {a: 1/len(A) for a in A},
+...     value=lambda s: 0.0,
+... )
+>>> report.best_action          # canonical recommended action at the root
+>>> report.best_value           # search's value estimate
+>>> report.principal_variation  # deepest sequence the search agreed on
+>>> report.certificate          # SHA-256 chain of (parent, action, child) events
+>>> report.budget_used          # nodes, time, peak depth — what the search consumed
+>>> report.regret_bound         # algorithm-specific finite-time regret bound
+```
+
+### Algorithms shipped
+
+Six families of search under a single `algorithm=` switch.  The default
+is `"auto"` — pick the family that respects the supplied evaluator
+signatures.
+
+  * **A\*** (Hart-Nilsson-Raphael 1968) — best-first over `f = g + h`.
+    Optimally efficient under a consistent heuristic.  `weighted=w`
+    switches to **weighted A\*** (Pohl 1970) with a worst-case `w`-
+    suboptimality bound.
+  * **IDA\*** (Korf 1985) — iterative-deepening A\* with linear space.
+  * **UCT** (Kocsis-Szepesvári 2006) — MCTS with the **UCB1** rule
+    (Auer-Cesa-Bianchi-Fischer 2002).  Finite-time regret
+    `O(K log T / Δ_min)`.
+  * **PUCT** (Silver et al. 2017, AlphaGo Zero) — UCT with a *policy
+    prior* `P(s,a)` added to the exploration term.  Reduces to UCT
+    under a uniform prior; the AlphaZero recommendation `c_puct=1.25`
+    is the default.  Optional **Dirichlet root noise** for self-play.
+  * **Alpha-Beta** (McCarthy 1956 / Knuth-Moore 1975) with iterative
+    deepening (Slate-Atkin 1977), transposition table (Greenblatt
+    1967), history heuristic (Schaeffer 1989), and aspiration windows.
+  * **Beam search** (Reddy 1977) with configurable width and score
+    direction (`"value"` or `"cost"`).
+  * **Branch-and-Bound** (Land-Doig 1960) — best-first with incumbent
+    pruning.
+
+### What "bounded, anytime, certified" means
+
+  * **Bounded** — every algorithm exposes a uniform stop predicate
+    over (wall-clock seconds, expansion count, node count, peak
+    memory, deadline timestamp).  A coordinator with 30 ms left in
+    its SLO budget passes that 30 ms and gets back the best decision
+    the searcher could compute within it.  `report.budget_used` and
+    `report.bound_hit` record exactly what was consumed and which
+    bound (if any) fired.
+  * **Anytime** — at every iteration the current best action and
+    value are well-defined.  `report.history` records the
+    `(iteration, best_action, best_value)` trajectory so a
+    coordinator can detect convergence.
+  * **Certified** — every report carries a SHA-256 chain over the
+    canonical sequence of `(parent_key, action, child_key, evaluation,
+    selected)` decisions.  Replaying the search against the same
+    config, root, evaluators, and RNG seed reproduces the chain
+    byte-for-byte.  Two processes that agree on the certificate
+    agree on the search.  Optional HMAC under a `secret_key` for
+    authenticated chains.
+  * **Pure stdlib** — no NumPy, no Torch, no SciPy.  The same module
+    runs inside a sandboxed coordinator, inside a CI worker, inside
+    a 256 MB Lambda.
+
+### How it composes with the rest of the runtime
+
+Every evaluator (`actions`, `apply`, `terminal`, `reward`, `heuristic`,
+`policy_prior`, `value`) is a Python callable the coordinator supplies
+— *including other primitives in this runtime*.  Composition is the
+whole point:
+
+  * **`Predictor`** as `value` — CTW gives a calibrated leaf estimate
+    over a symbol stream; PUCT then chooses where to spend the next
+    sampling step.
+  * **`Verifier`** as `terminal` — a proof-checker terminates the
+    branch the moment the lemma is discharged; the certificate
+    composes with `AttestationLedger`.
+  * **`Solver`** as `apply` — for a SAT-encoded transition system,
+    CDCL is the move generator; `Searcher` then drives the high-level
+    plan search.
+  * **`Analogist`** as `policy_prior` — retrieved structural mappings
+    bias the prior toward actions that worked in analogous past
+    cases.
+  * **`Conformal`** wraps the leaf `value` in a distribution-free
+    coverage interval — a coordinator can SLO on
+    `P(true_value ∈ [lo, hi]) ≥ 1−α` per leaf.
+  * **`Cartographer`** can use `Searcher`'s `report.regret_bound`
+    as the "ZPD" signal: a task whose search produces a regret
+    bound that just barely shrinks under more iterations is in the
+    zone of proximal development.
+
+### Investor framing
+
+PUCT is the algorithmic core of every milestone-grade AI of the last
+decade: AlphaGo Zero, AlphaZero, MuZero, Stockfish-NNUE, and modern
+LLM-based code-search agents.  `Searcher` is the runtime's
+**deterministic, certificate-producing rendering** of that core,
+callable as a single in-process primitive that respects an SLO
+budget and composes with every other primitive in the runtime.  It
+turns "give the agent more thinking time" from a vague request into
+a *measurable budget knob* a coordination engine can dial.
+
+### What it deliberately doesn't claim
+
+  * `Searcher` does not learn its own value or policy network — that
+    requires gradient compute, which is the job of the learner track
+    (LoRA SFT) and out of scope for the in-process runtime.  It will
+    use a learned model the moment a coordinator passes one in as a
+    callable.
+  * It does not solve continuous-action MDPs out of the box; progressive
+    widening (`Coulom 2007`) is shipped behind `progressive_widening=
+    True` for the discrete-projection case.  True continuous-control
+    integration (cross-entropy method, iLQR, MPPI) is a separate
+    primitive.
+  * The certificate proves *reproducibility*, not *correctness of the
+    evaluators*.  A buggy `reward` produces a tamper-evident search
+    over a buggy reward.  Compose with `Verifier` / `Refuter` to
+    establish that the *evaluators* themselves are sound.
+
+## Distiller — amortized policy/value distillation as a runtime primitive
+
+Every other primitive in this runtime **computes** an answer.
+`Searcher` runs PUCT on a fresh tree.  `Solver` decides a fresh CNF.
+`Inducer` enumerates fresh programs.  The operation that takes the
+*outputs* of those primitives — visit distributions over actions,
+value estimates at states, accepted decisions on inputs — and
+**compiles them into a cheap, callable model** so the next instance of
+the same kind of question is answered in *amortized constant time* is
+**distillation**.
+
+Distillation is the operational mechanism behind every milestone-grade
+self-improving AI of the last decade: **AlphaGo Zero distils
+800-rollout PUCT into a single forward pass; MuZero distils a learned-
+dynamics search into the same; expert iteration / DAgger distils a
+slow expert into a fast student; algorithmic distillation distils a
+*learning algorithm* into a frozen Transformer's activations**.  In
+every case the search-or-oracle is the *teacher*, the parametric model
+is the *student*, and the expected behaviour of the teacher under the
+student's own distribution is the target.
+
+`Distiller` is the runtime's *bounded, anytime, certified, stdlib*
+version of that operation.  Composed with `Searcher`, it closes the
+AlphaZero-style self-improvement loop **inside one Python process**,
+without a GPU, without a deep-learning framework, without a tokenizer.
+
+The pitch reduced to a runtime call:
+
+```python
+>>> from agi import (Searcher, SearcherConfig, Distiller, DistillerConfig,
+...                  expert_iteration_step)
+>>> teacher = Searcher(SearcherConfig(algorithm="puct", max_iterations=512))
+>>> student = Distiller(DistillerConfig(model="linear", n_features=4096))
+>>>
+>>> for ep in range(100):
+...     state = root_state()
+...     while not is_terminal(state):
+...         rep = teacher.search(state, actions=..., apply=...,
+...                              terminal=..., reward=...,
+...                              policy_prior=student.as_policy_prior(),
+...                              value=student.as_value())
+...         student.observe(state=state,
+...                          action_distribution=rep.root_visits_by_action,
+...                          value=rep.best_value)
+...         state = apply(state, rep.best_action)
+...     student.fit()  # eval-gated swap of the deployed model
+>>>
+>>> # the student is now usable as a *standalone* fast policy/value:
+>>> p_at_s   = student.policy(s, [...actions...])  # dict action → prob
+>>> v_at_s   = student.value(s)                    # scalar
+```
+
+### Model families shipped
+
+All pure stdlib — no NumPy, no PyTorch, no SciPy.
+
+  * **`"knn"`** — exact :math:`k`-nearest-neighbour over a feature-
+    hashed Euclidean distance (Cover & Hart 1967): `O(N)` per query;
+    consistent under the Cover-Hart bound for any
+    state-feature space.
+  * **`"linear"`** — per-action linear softmax policy + linear value
+    head with feature hashing (Weinberger et al. 2009); trained by
+    epoch-shuffled batch gradient descent with `L2` + per-coordinate
+    clip for numerical safety; `O(d)` per query.
+  * **`"locally_weighted"`** — locally-weighted regression (Atkeson,
+    Moore & Schaal 1997): Gaussian-kernel-weighted average over the
+    demonstration set.
+  * **`"ucb_table"`** — exact tabular memoization; the right answer for
+    small finite state spaces.
+  * **`"ensemble"`** — log-linear opinion pool (Gneiting & Raftery 2007)
+    over any subset of the above, with optionally externally-fit weights.
+
+### Calibration
+
+  * **Temperature scaling** (Guo et al. 2017) on the policy logits,
+    fit by Brier-minimisation on a held-out slice.
+  * **Isotonic value calibration** (Brunk et al. 1972) via PAV.
+
+### Eval-gated deployment
+
+Every `.fit()` produces a *candidate* model.  Deployment is gated by
+a held-out cross-entropy + value-MSE drop ≥ `min_improvement`.  A
+candidate that regresses the incumbent **cannot be deployed** — the
+rollback story is enforced inside the primitive.  AlphaZero ladder
+discipline, inside one process.
+
+### Reservoir replay buffer
+
+Vitter (1985) Algorithm R: bounded-memory uniform sample over the
+entire demonstration stream.  No rolling windows, no batch hand-picking,
+no oldest-data bias.
+
+### Certificate chain
+
+SHA-256 chain over the canonical sequence of `(epoch, mini-batch hash,
+parameter delta hash, eval result)` events.  Two distillers in two
+processes fed the same demonstrations under the same seed agree on the
+certificate byte-for-byte.  Optional HMAC under `secret_key` for
+authenticated chains.
+
+### How it composes with the rest of the runtime
+
+`Distiller` is the *amortising co-processor* for the rest of the
+runtime:
+
+  * **`Searcher` ↔ `Distiller`** — the AlphaGo Zero loop:
+    Searcher generates training distributions (`root_visits_by_action`)
+    and value targets (`best_value`); Distiller fits a student;
+    Searcher uses the student as `policy_prior` and `value`; repeat.
+    `expert_iteration_step()` ships this as a one-line helper.
+  * **`Predictor` (CTW)** — Distiller's `value` head can stand in for
+    Predictor's calibrated next-symbol estimate when the state space
+    is fixed.  Wire one into the other.
+  * **`Conformal`** wraps `student.value(s)` in a distribution-free
+    coverage interval, turning "the student predicts +0.42" into
+    "the student predicts +0.42, with 95% coverage of the true value
+    in [+0.21, +0.58]".
+  * **`Cartographer`** uses `DistillerReport.improvement_over_baseline`
+    as the per-skill learning-progress signal: a task whose
+    distillation step *just barely* improves the incumbent is in the
+    zone of proximal development.
+  * **`AttestationLedger`** consumes the certificate chain.  A
+    regulator can replay every parameter update from the certificate
+    alone.
+
+### Investor framing
+
+The AlphaZero ladder — *search produces targets, network distils
+targets, network biases next search, repeat* — is the proven path
+from "useful agent" to "Elo-saturated specialist" in every domain it
+has been tried (Go, chess, shogi, Atari, protein folding, code).
+`Distiller` is the runtime's **in-process, certificate-producing,
+GPU-free realisation of that ladder**.  Composed with `Searcher`, it
+turns "give the agent more training time" from a vague request into a
+*measurable cost-per-decision curve* a coordination engine can dial.
+A coordinator's investor dashboard is upstream of the field: the
+`improvement_over_baseline` is a measured drop, not a claim.
+
+### What it deliberately doesn't claim
+
+  * `Distiller` is not a deep network.  Its model families are
+    deliberately simple — kNN, hashed linear, LWR, exact table — so
+    the runtime stays stdlib-only and reproducible byte-for-byte.
+    For deep-network distillation, swap the `Distiller` model for the
+    learner-track LoRA loop (see `ARCHITECTURE.md`).
+  * It does not solve the *credit assignment* problem inside the
+    teacher — that is the teacher's responsibility (Searcher's
+    `reward`).  Distiller is a *function approximator* for whatever
+    targets the teacher emits.
+  * The certificate proves *reproducibility of the fit*, not
+    *correctness of the teacher's targets*.  Garbage targets in,
+    tamper-evident garbage student out.  Compose with `Verifier`
+    on the upstream targets.
+
+## Curator — automated curriculum *generation* as a runtime primitive
+
+Every long-running runtime that learns eventually faces a problem
+that neither `Cartographer` nor `Arbiter` can answer alone.
+Cartographer selects *from a given pool* of tasks the one with the
+highest expected learning progress.  Arbiter commits to the best of
+*a finite arm set* with a fixed-confidence bound.  But the problem
+upstream of both is: **where does the pool come from?**  AlphaZero
+is not AlphaZero because it picks well from a fixed library of
+board positions — it is AlphaZero because **self-play generates the
+positions, at a difficulty just beyond current capability,
+forever**.  The same is true of every self-improving system: a
+curriculum is *built*, not given.
+
+`Curator` is the runtime primitive that builds it.  Given a
+parameterised task generator (a function from a difficulty vector
+`θ ∈ Θ` to a concrete task) and a competence oracle (a function that
+runs the agent against a task and returns 0/1 success), `Curator`
+maintains an online estimate of the agent's competence across `Θ`
+and proposes new tasks drawn from the **frontier of proximal
+development** (Vygotsky 1934, Oudeyer & Kaplan 2007): tasks the
+agent solves with probability that is neither too low (no signal)
+nor too high (no progress), and whose learning progress is empirically
+the highest.
+
+### The four-primitive self-improvement loop
+
+`Curator` is the missing fourth leg of the in-process AlphaGo-style
+loop the runtime now ships end-to-end:
+
+```
+  Curator    → proposes new tasks at the ZPD frontier
+   ↓
+  Searcher   → solves them (PUCT / A* / alpha-beta / …)
+   ↓
+  Distiller  → compiles solutions into a fast student
+   ↓                                  ↑
+   └── student becomes Searcher's     │
+       policy_prior + value for the   │
+       next round ────────────────────┘
+```
+
+Composed with `Cartographer` (which picks *among* the Curator's
+proposals by learning progress), the runtime has the complete
+chain:
+
+  * **"where do new tasks come from?"** → `Curator`
+  * **"which of the proposed tasks should I attempt next?"** →
+    `Cartographer`
+  * **"given this task, what's the answer?"** → `Searcher`
+  * **"compile the answer into a callable student"** → `Distiller`
+  * **"use the student as the prior for the next Searcher call"**
+    → loop closed
+
+### Strategies shipped
+
+  * **`"zpd"`** — Vygotsky's zone of proximal development.  Sample θ
+    such that the posterior on competence is closest to
+    `target_competence` (default 0.6).  Uses the Beta-Binomial
+    conjugate (Jeffreys prior) and the Wilson score interval.
+  * **`"learning_progress"`** — Oudeyer-Kaplan IAC (2007).  Track
+    recent vs. older competence per cell; sample θ proportional to
+    `|μ̂_recent − μ̂_prev|`.
+  * **`"thompson_lp"`** — Thompson sampling over learning progress.
+    Draw posterior LP per cell from Beta(s+½, n−s+½) and pick the
+    argmax.  Russo et al. (2018) regret bounds apply.
+
+### Calibration
+
+`Curator.brier_score()` reports the Brier score of the predicted-vs-
+realised success rate over the last `brier_window` proposals
+(Gneiting & Raftery 2007).  A coordinator can SLO-gate on calibration.
+
+### Certificate chain
+
+SHA-256 chained over the canonical (proposal, observation) event
+sequence.  Replay-verifiable byte-for-byte under the same config and
+seed.  Optional HMAC under `secret_key` for authenticated chains.
+
+### Investor framing
+
+AlphaGo Zero's *self-play* is the single most important reason it
+crossed superhuman play: it generated its own training data, at
+the difficulty just beyond what it could do.  `Curator` is the
+runtime's **generic, in-process renderer of that idea** —
+domain-agnostic, certificate-producing, stdlib-only.  Together with
+`Searcher` and `Distiller` it closes the in-process self-improvement
+loop the rest of the architecture needs to *compound* over time;
+a coordinator's investor dashboard can watch the
+`improvement_over_baseline` curve fall and the frontier difficulty
+rise as the agent learns.
+
+### What it deliberately doesn't claim
+
+  * `Curator` does not *invent* the difficulty parameterisation —
+    the user supplies `param_lo` / `param_hi` / `n_buckets` and a
+    `generator(theta) → task` callable.  Auto-discovering a useful
+    parameterisation is an open research problem (UED, POET,
+    Open-Ended Learning).
+  * The Beta-Binomial competence posterior assumes binary outcomes;
+    fine-grained quality scores are passed in via the `success`
+    binarisation (e.g. `success = quality >= threshold`).
+  * The cell discretisation is uniform.  Adaptive (KD-tree, BSP)
+    discretisation is a natural extension and not yet shipped.
 
 ## HTTP / SSE surface
 
