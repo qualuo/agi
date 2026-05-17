@@ -88,6 +88,7 @@ agi/                # runtime + agent + reference coordinator
   imaginator.py     # Imaginator — learned-world-model rollouts as a runtime primitive (Sutton 1990 *Dyna*; Kearns-Singh 2002 *Near-Optimal RL in Polynomial Time* — simulation lemma ``|V^π_M̂ − V^π_M| ≤ (γ/(1−γ)²) ε``; Strehl-Littman-Wiewiora 2009 PAC-MDP with sample-complexity ``O((SA/ε²(1−γ)⁴)·log(SAδ⁻¹))``; Strens 2000 / Osband-Russo-Van Roy 2013 PSRL with Bayesian regret ``O(τ √(SAT log T))``; Auer-Jaksch-Ortner 2010 UCRL2; Deisenroth-Rasmussen 2011 PILCO moment-matching; Janner-Fu-Zhang-Levine 2019 *When to Trust Your Model* short-horizon-rollout argument; Hafner-Lillicrap-Ba-Norouzi 2020 DreamerV3 imagined-trajectory policy optimisation); two conjugate dynamics families — discrete-state Dirichlet-multinomial transition + Normal-Gamma reward with closed-form Bayesian updates and Student-t reward predictive, and continuous-state matrix-normal-inverse-Wishart linear-Gaussian with Cholesky-via-Lentz analytic posterior mean dynamics ``[A | B]`` and per-horizon closed-form moment propagation; three rollout-sampling selectors — posterior_mean / Thompson (PSRL — one transition matrix per trajectory) / Bayes-averaged (Madigan-Raftery 1994 BMA over n_models posterior samples); imagine() bundles Monte-Carlo expected-return + std + Maurer-Pontil 2009 empirical-Bernstein LCB/UCB + Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequence + return quantiles + per-horizon state quantiles + full trajectories; value_iteration() — closed-form DP on posterior-mean transition/reward; thompson_policy() — PSRL one-sample plan-act-repeat; pac_value_bound() — Kearns-Singh simulation-lemma PAC bound composed with per-(s,a) Hoeffding transition radius; required_samples_for_pac() — invert PAC bound to Strehl-Littman-Wiewiora sample complexity; bayes_average_value() — Bayesian Model Averaging value estimate over n_models posterior dynamics; moment_rollout() — PILCO closed-form Σ_{h+1} = A Σ_h Aᵀ + Q linear-Gaussian moment propagation; identifiability_report() — Cao-Cohen-Szepesvári 2021 under-observed (s,a) pairs and per-pair effective Dirichlet concentration; pit_calibration() — Massey 1951 one-sample Kolmogorov-Smirnov test on probability-integral-transform of one-step rewards under Student-t predictive (Stephens 1970 asymptotic correction); tamper-evident SHA-256 fingerprint chain (genesis ``agi.imaginator.v1\x00 + secret_key``) with optional HMAC-SHA-256 over every register / observe / imagine / plan / certify event so AttestationLedger replays the imagined trajectory byte-for-byte from observation stream + RNG seed; export_state()/import_state() round-trip byte-identical chain head; thread-safe re-entrant lock; pure stdlib — list-of-lists matrices, Cholesky-via-Lentz solver, Marsaglia-Tsang gamma draws, hashlib SHA-256, no NumPy / SciPy / PyTorch; the *learn-a-dynamics-model-from-observed-transitions-imagine-with-calibrated-bounds-and-emit-a-replay-verifiable-receipt* primitive — the **model-based-RL inner loop** as a runtime primitive that lets a coordination engine route every Goal whose execution requires reasoning about future world states through `imagine → certify → act` with anytime-valid uncertainty bounds the compliance officer can sign before action — composes with Searcher (Searcher's tree search runs over Imaginator's posterior-predictive successor enumerator), ActiveInferencer (Imaginator supplies the generative model the EFE minimisation requires), Quantilizer (Imaginator.return_quantiles IS the distribution Quantilizer thresholds on — deploy the policy whose imagined return is in the top q-quantile), Distiller (distil the value_iteration policy into an amortised neural / linear policy), Planner (Imaginator's posterior-mean transition matrix is a PDDL-compilable operator schema; Planner solves SAT with the MAP transitions), DriftSentinel (per-step log-loss of one-step predictions is a martingale-difference under correct dynamics; CUSUM flags world drift), Bandit / BayesOpt (Thompson-sampled value is a cheap proxy oracle for hyperparameter search), Curator (Imaginator's identifiability report identifies under-observed (s,a) pairs Curator targets in the next curriculum batch), AttestationLedger (every register/observe/imagine/plan/certify event hash-chains into the ledger), Coordinator (every Goal whose execution requires reasoning over future world states routes through Imaginator — the coordination engine no longer hand-writes the dynamics function; it observes a few real transitions, registers them, and queries imagined value with calibrated uncertainty bounds the compliance officer can sign before action)
   mentalist.py      # Mentalist — Bayesian theory-of-mind as a runtime primitive (Premack-Woodruff 1978; Baker-Saxe-Tenenbaum 2009 *Action understanding as inverse planning*; Baker-Jara-Ettinger-Saxe-Tenenbaum 2017; Foerster-Chen-Al-Shedivat-Whiteson-Abbeel-Mordatch 2018 *Learning with opponent-learning awareness*); Dirichlet posterior over latent state distributions per agent with closed-form online conjugate update; MaxEnt IRL (Ziebart-Maas-Bagnell-Dey 2008) recovering utility weights θ such that ``π(a | s) ∝ exp(β · Q_θ(s, a))`` best explains the observed action stream — closed-form gradient descent with ℓ₂ regularisation and provable convergence to the unique MaxEnt fixed point; online Bayesian rationality estimation (Gamma prior on inverse-temperature β driven by predictive log-likelihood); Beta-Bernoulli capability posteriors per (action, state) with Clopper-Pearson 1934 exact credible intervals; four predict selectors — MAP / softmax-Boltzmann / Thompson sampling with ``O(√(T log T))`` regret against the best fixed agent / Bayes posterior-mean averaging (Madigan-Raftery 1994) minimising log-loss in expectation; rollout simulation under the posterior-mean Boltzmann policy for value-of-information queries; nested theory of mind (``nested_belief(observer="bob", target="alice", …)`` returns Bob's posterior over Alice's policy from Bob's observations alone); McAllester 1999 PAC-Bayes bound on held-out predictive log-loss; identifiability report (Cao-Cohen-Szepesvári 2021) on rank/nullity/conditioning of the feature matrix — the dimensions of utility space the data cannot distinguish; Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequences + Maurer-Pontil 2009 empirical-Bernstein + Hoeffding 1963 LCB / UCB on every aggregate statistic; tamper-evident SHA-256 fingerprint chain (genesis ``mentalist.v1.genesis``) with optional HMAC-SHA-256 over every register / observe / predict / infer / report event so AttestationLedger replays the mind-modelling trace byte-for-byte; thread-safe re-entrant lock; pure stdlib — list-of-lists matrices, log-sum-exp Boltzmann softmax, hashlib SHA-256, no NumPy / SciPy; the *give-me-a-calibrated-Bayesian-belief-over-what-the-counterparty-believes-wants-and-will-do-next* primitive — the **theory-of-mind kernel** onto which every multi-agent primitive composes when the runtime must reason *about* another mind rather than merely transact *with* it — composes with Negotiator (Mentalist supplies the counterparty utility posterior; Negotiator allocates fairly against it), Coalition (per-member Mentalist policy posteriors feed Shapley-value estimation), Mechanism / Persuader (both need a model of the receiver's utility — Mentalist supplies a Bayesian one from observed behaviour), Diplomat (cheap-talk inference reads Mentalist's nested belief over the other side's belief), Equilibrator (best-response dynamics use Mentalist's Boltzmann policy as opponent-action expectation), Intender (Intender learns the user's reward, Mentalist learns the *other agent's* reward — same MaxEnt IRL machinery, different reference frame), Aligner (deploy a Mentalist-predicted KL-budget against each modelled counterparty), Bandit / BayesOpt (Thompson sampling on Mentalist's posterior gives an opponent-model-aware exploration policy), DriftSentinel (per-step predictive log-likelihood is a martingale-difference under correct opponent modelling — CUSUM detects opponent-policy shifts), AttestationLedger (every register / observe / predict / infer event hash chains into the ledger), Coordinator (every Goal whose execution involves another mind routes through Mentalist — the coordination engine maintains a calibrated belief over what each counterparty believes, wants and will do, with anytime-valid receipts the compliance officer can sign before action)
   pareto.py         # Pareto — multi-objective optimization as a runtime primitive (Deb-Pratap-Agarwal-Meyarivan 2002 NSGA-II fast non-dominated sort with O(MN²) time / O(N²) memory + Deb 2002 §3.3 crowding distance on each rank for diversity-preserving tie-break; Zitzler-Thiele 1998 *Multiobjective optimization using evolutionary algorithms* hypervolume indicator with closed-form 2D sweep, Beume-Fonseca-López-Ibáñez-Paquete-Vahrenhold 2009 *HV by slicing objectives* exact 3D dimension-sweep, While-Hingston 2011 WFG-style dimension-sweep decomposition for M ∈ {4, 5}, inclusion-exclusion over axis-aligned boxes for M ≥ 6 with Monte-Carlo fallback at N > 14; Emmerich-Beume-Naujoks 2005 + Emmerich 2008 *Expected hypervolume improvement* closed-form for M=2 via Yang-Emmerich-Deutz-Bäck 2017 box-decomposition (each strip factorises into 0th and 1st partial Gaussian moments, finite sum), Monte-Carlo EHVI for M ≥ 3 with standard-error report; Steuer 1986 weighted-sum scalarisation / Tchebycheff scalarisation; Knowles 2006 ParEGO augmented Tchebycheff (Steuer-Choo 1983 augmentation breaks weak-Pareto degeneracy — every Pareto-optimal point becomes the strict argmin of *some* augmented Tchebycheff weight vector); Wierzbicki 1980 *The use of reference objectives in multiobjective optimization* achievement scalarising function (aspiration-point method); Das-Dennis 1998 + Zhang-Li 2007 *MOEA/D* penalty boundary intersection PBI = d₁ + θ·d₂; Das-Dennis 1998 uniformly-spaced weight grid C(p+M−1, M−1) on the M-simplex / Marsaglia 1972 Dirichlet(1, …, 1) uniform-simplex sampling via the Gumbel trick; Coello-Sierra 2004 inverted generational distance IGD + Van Veldhuizen 1999 generational distance GD + Schott 1995 spacing + Zitzler 1999 maximum-spread — each metric carries a Maurer-Pontil 2009 empirical-Bernstein half-width on its sample mean when computed from a sub-sample; Deb 2000 *An efficient constraint handling method for genetic algorithms* feasibility-first dominance for constrained problems (feasible dominates infeasible; infeasible compared by aggregate constraint violation); Howard-Ramdas-McAuliffe-Sekhon 2021 anytime-valid confidence sequence + Hoeffding 1963 LCB / UCB on the running hypervolume increment supplies the *stop-expanding-the-front-when-expected-progress-falls-below-ε* receipt; tamper-evident SHA-256 fingerprint chain (genesis ``agi.pareto.v1\x00 + secret_key``) with optional HMAC-SHA-256 over every register / observe / frontier / report / certify event so AttestationLedger replays every multi-objective decision byte-for-byte from the observation stream; snapshot() / restore() round-trip a byte-identical chain head so the coordination engine can hibernate the front, ship it to another host, and resume; thread-safe re-entrant lock; pure stdlib — list-of-lists arithmetic, math.erf-based normal CDF, hashlib SHA-256, no NumPy / SciPy / PyTorch; the *give-me-the-Pareto-rank-1-layer-plus-EHVI-for-the-next-evaluation-plus-an-anytime-valid-progress-certificate-replay-verifiable-by-the-compliance-officer* primitive — the **multi-objective decision kernel** every product story needs (drug discovery weighs affinity vs synthesis vs toxicity, infra weighs accuracy vs latency vs cost, negotiation weighs outcome value vs fairness) — composes with BayesOpt (EHVI acquisition picks the next candidate when the surrogate emits a Gaussian posterior over each objective — multi-objective Bayesian optimisation = BayesOpt with Pareto's EHVI in the acquisition slot), Bandit (register a Tchebycheff or augmented-Tchebycheff scalarisation as the reward channel; sweep the Das-Dennis weight grid to expose the front — every weight vector becomes one bandit instance), Searcher (every tree-search leaf becomes a Pareto candidate with an M-objective cost; the search returns the *Pareto layer* not the argmax — coordination over Pareto-rank-1 plans), PortfolioOptimizer (Pareto sorts (return, risk) candidates before allocating a fixed budget across them — Pareto-rank-1 is the efficient frontier in the Markowitz sense), Strategist (fuses calibration + conformal + causal + OPE on *each objective* and returns the Pareto-rank-1 panel to the coordination engine — risk-adjusted multi-objective recommendation), Coalition (multi-criterion Shapley value: one Pareto rank per criterion, then aggregated), Negotiator (Kalai-Smorodinsky and Nash bargaining are *exactly* the Tchebycheff and weighted-product scalarisations on the disagreement-shifted objective space — Pareto.frontier() bounds the bargaining set), Quantilizer (Pareto-rank-1 ∩ top-q quantile on a scalarisation gives a doubly-certified deliverable panel), Reconciler (when K primitives emit posteriors over M objectives, Reconciler aggregates per-objective and Pareto sorts the consensus point cloud), DriftSentinel (running hypervolume CUSUM rolls back the deployed front when its progress signal regresses), AttestationLedger (every register / observe / frontier / hv / ehvi / certify event hash-chains into the global audit ledger), Coordinator (every Goal whose execution must trade off more than one objective routes through Pareto for a rank-1 candidate panel + a calibrated EHVI to spend the next evaluation budget on + an anytime-valid stop signal the compliance officer can sign before action)
+  diffuser.py       # Diffuser — score-based generative modelling as a runtime primitive (Ho-Jain-Abbeel 2020 DDPM; Song-Meng-Ermon 2020 DDIM deterministic non-Markovian sampler; Lu-Zhou-Bao-Chen-Li-Zhu 2022 DPM-Solver-1 / DPM-Solver-2 exponential integrator in log-SNR coordinates; Karras-Aittala-Aila-Laine 2022 EDM Heun second-order PF-ODE predictor-corrector + variance-exploding σ-schedule; Song-Sohl-Dickstein-Kingma-Kumar-Ermon-Poole 2021 reverse-SDE Euler-Maruyama and probability-flow ODE Euler; Song et al. 2021 predictor-corrector (reverse-SDE + Langevin); Lipman-Chen-Ben-Hamu-Nickel-Le 2023 Flow Matching continuous-normalising-flow along straight-line conditional paths; Song-Dhariwal-Chen-Sutskever 2023 Consistency models for one-shot / few-step distilled sampling; Austin-Johnson-Ho-Tarlow-van-den-Berg 2021 D3PM categorical diffusion with absorbing and uniform transition kernels; Nichol-Dhariwal 2021 cosine β-schedule alternative to the linear DDPM schedule); analytic closed-form score for an isotropic Gaussian mixture under the forward DDPM kernel (Tweedie 1947 / Robbins-Stein-Efron 2011 empirical-Bayes denoising identity ``E[x_0 | x_t] = x_t + σ²·∇log p_t(x_t)``); Dhariwal-Nichol 2021 classifier guidance + Ho-Salimans 2022 classifier-free guidance — runtime injects ``w · ∇log p(c | x)`` or ``(1 + w)·(s_cond − s_uncond) + s_uncond`` into the score query at every reverse step; Hyvärinen 2005 score-matching loss with closed-form trace-divergence regulariser; Chen-Chewi-Li-Li-Salim-Zhang 2022 *Sampling is as easy as learning the score* Girsanov-based TV bound ``TV ≤ e^{-µT/2} √M + √(T · score_error / 2)`` against the data distribution; Ho 2020 §3 closed-form Gaussian DDPM ELBO term ``KL(q(x_{t-1}|x_t,x_0) ‖ p_θ(x_{t-1}|x_t))``; Devroye-Györfi-Lugosi 1996 histogram empirical-TV witness with Hoeffding 1963 finite-sample confidence half-width so the true TV is bracketed with probability ≥ 1−δ; tamper-evident SHA-256 fingerprint chain (genesis ``agi.diffuser.ledger.root``) over every register / sample / step / fit / certify / deregister event so AttestationLedger replays every reverse-time trajectory byte-for-byte from the seed; export() / import_() round-trip the chain head so the coordination engine can hibernate, ship, and resume the primitive; thread-safe re-entrant lock; pure stdlib — list-of-lists arithmetic, math.exp / math.log numerics with log-sum-exp stability, hashlib SHA-256, no NumPy / PyTorch / Triton; the *give-me-a-sample-from-an-arbitrary-continuous-or-discrete-target-via-the-best-modern-reverse-time-solver-with-a-Girsanov-and-ELBO-and-empirical-TV-certificate-the-compliance-officer-can-sign* primitive — the **score-based generative kernel** the runtime has been missing (Imaginator generates discrete dynamics rollouts, Flower generates discrete-DAG terminals proportional to reward, BayesOpt generates Gaussian-process posterior draws, but until now no primitive could fill the continuous-multimodal slot every modern generative-AI product demands) — composes with Imaginator (synthetic trajectory rollouts via conditional score-based sampling on observed prefixes), Aligner (preference-conditioned generation via classifier-free guidance on a learned reward), Quantilizer (rejection-sample low-score generations for safety-bounded tail control), Pareto (multi-objective conditional generation by linearly combining per-objective classifier gradients), Reconciler (Aumann agreement on samples drawn from two independent score networks → one calibrated consensus distribution), Speculator (speculate K reverse-time steps on a cheap network and verify with the expensive one — DDIM-style multi-step Levihtan speculation), Flower (drop-in comparison on multi-modal coverage — same ``(terminal, reward)`` interface across GFlowNets vs diffusion), DriftSentinel (per-step score-norm-residual is a martingale-difference under correct score; CUSUM detects target-distribution drift), AttestationLedger (every register / sample / step / fit / certify event hash-chains into the global audit ledger), Coordinator (every Goal whose execution requires sampling from a continuous-multimodal posterior — trajectory plans, action sequences, content latents — routes through Diffuser for a sample plus a four-line Girsanov + ELBO + empirical-TV + score-floor certificate the compliance officer can sign before action)
   costs.py          # per-turn + cumulative token usage and $ tracking
   tools.py          # builtin tools: file, shell, web, memory (+ world auto-record)
   __main__.py       # CLI: python -m agi
@@ -5478,6 +5479,135 @@ print(cov.tv_to_target, cov.modes_found, cov.mode_coverage_lcb)
     proportional to reward, not to information gain. Pair with
     `Curator` for active-learning-style exploration of the
     identifiability gap.
+
+## Diffuser — score-based generative modelling as a runtime primitive
+
+Every other generative primitive in the runtime covers a specific niche:
+`Flower` (GFlowNets — categorical, reward-proportional, discrete-DAG),
+`Imaginator` (learned world-model rollouts, discrete state-action),
+`BayesOpt` (Gaussian-process posterior sampling, low-dim continuous),
+`Predictor` (Context-Tree-Weighting, sequence prediction), `Sampler`
+(exact/approximate posterior sampling).  None of them gave the runtime
+a **score-based continuous** generator — the family that has driven
+five years of frontier work on images, video, audio, robotics
+trajectories, and protein structure.  `Diffuser` fills that gap.
+
+Given a noise schedule and a (learned or analytic) score function
+``s(x, t) ≈ ∇_x log p_t(x)``, `Diffuser` draws samples from the target
+distribution via **any of ten reverse-time solvers** with formal
+mixing- and sampling-error certificates, all in pure stdlib:
+
+* **DDPM** (Ho-Jain-Abbeel 2020) — original stochastic reverse-time
+  Markov chain.
+* **DDIM** (Song-Meng-Ermon 2020) — deterministic non-Markovian sampler
+  recovering the same marginals in O(K) ≪ O(T) steps.
+* **DPM-Solver-1 / DPM-Solver-2** (Lu-Zhou-Bao-Chen-Li-Zhu 2022) —
+  exponential integrator for the probability-flow ODE in log-SNR
+  coordinates.
+* **Heun (Karras EDM)** (Karras-Aittala-Aila-Laine 2022) — second-order
+  predictor-corrector on the PF-ODE.
+* **Euler-Maruyama SDE** (Song et al. 2021) — first-order reverse-SDE.
+* **PF-ODE Euler** (Song et al. 2021) — deterministic ODE form.
+* **Predictor-Corrector** (Song et al. 2021) — alternates reverse-SDE
+  step with Langevin MCMC corrections.
+* **Flow Matching** (Lipman-Chen-Ben-Hamu-Nickel-Le 2023) — continuous
+  normalising flow via straight-line conditional paths.
+* **Consistency model** (Song-Dhariwal-Chen-Sutskever 2023) — one-shot
+  ``f_θ(x_t, t) ≈ x_0`` for few-step generation.
+* **D3PM categorical diffusion** (Austin-Johnson-Ho-Tarlow-van-den-Berg
+  2021) — absorbing / uniform / Gaussian transition kernels over
+  discrete state-spaces with closed-form reverse posterior.
+
+```python
+from agi.diffuser import Diffuser, DiffuserConfig, gaussian_mixture_score
+
+# 50/50 mixture of N([+2, 0], 0.25·I) and N([-2, 0], 0.25·I), analytic score.
+score = gaussian_mixture_score([[2.0, 0.0], [-2.0, 0.0]], [0.5, 0.5], 0.25)
+
+d = Diffuser(DiffuserConfig(dim=2, T=200, seed=7))
+d.register("gmm", score_fn=score, second_moment=4.0)
+
+s = d.sample("gmm", algorithm="ddim", num_steps=40)
+# s.final is a 2-vector drawn from p(x) via 40 reverse-time DDIM steps.
+```
+
+`Diffuser` provides four lines of guarantee on every sampling run:
+
+1. **Girsanov TV bound** (Chen-Chewi-Li-Li-Salim-Zhang 2022, *Sampling
+   is as easy as learning the score*) — closed-form upper bound on the
+   total-variation distance between the model's reverse-time stationary
+   distribution and the data:
+
+      ``TV ≤ e^{-µT/2} · √M + √(T · score_error / 2)``
+
+   where `µ` is the forward-process decay rate, `T` the horizon, `M`
+   the data second moment, and `score_error` the Fisher-divergence
+   estimation error of the registered score.
+
+2. **DDPM ELBO term** (Ho et al. 2020, §3) — per-timestep
+   ``KL(q(x_{t-1} | x_t, x_0) ‖ p_θ(x_{t-1} | x_t))`` in closed Gaussian
+   form for the diagnostic case, plugged into a variational bound on
+   negative log-likelihood.
+
+3. **Score-matching loss floor** (Hyvärinen 2005) — the registered
+   ``score_error_floor`` parameter records the user's best estimate of
+   their score model's training-time Fisher divergence, propagated into
+   the Girsanov bound.
+
+4. **Empirical TV with Hoeffding half-width** (Devroye-Györfi-Lugosi
+   1996) — per-bin histogram TV between model samples and target
+   samples, with a finite-sample concentration half-width so the true
+   TV is bracketed with probability ≥ 1 − δ.
+
+`certify(target_id, samples, target_samples=...)` returns all four as a
+single record:
+
+```python
+cert = d.certify("gmm", samples, target_samples=gt, algorithm="ddim")
+# cert.girsanov_tv_bound    — closed-form upper bound
+# cert.empirical_tv         — histogram TV vs target samples
+# cert.empirical_tv_half_width — Hoeffding confidence half-width
+# cert.elbo_per_step        — mean DDPM ELBO term across the batch
+# cert.score_error          — registered (or supplied) score floor
+```
+
+**Guidance.**  Both **classifier guidance** (Dhariwal-Nichol 2021) and
+**classifier-free guidance** (Ho-Salimans 2022) are supported.  Pass a
+``classifier_grad_fn`` (or a ``cond_score_fn`` / ``uncond_score_fn``
+pair) at registration time, then call ``sample(..., condition=x,
+guidance_scale=w)`` — `Diffuser` injects ``w · ∇_x log p(c | x)`` (or
+``(1 + w)·(s_cond − s_uncond) + s_uncond``) into the score query at
+every reverse step.
+
+**How it composes with the rest of the runtime.**
+
+* `Imaginator` — synthetic rollouts via conditional sampling on observed
+  state prefixes.
+* `Aligner` — preference-conditioned generation via classifier-free
+  guidance over a learned reward.
+* `Quantilizer` — bound rare-tail sampling by rejecting low-score
+  generations.
+* `Pareto` — multi-objective conditional generation by linearly
+  combining classifier gradients per objective.
+* `Reconciler` — Aumann agreement on samples drawn from two independent
+  score networks.
+* `Speculator` — speculate K reverse-time steps on a cheap network,
+  verify with the expensive one.
+* `Flower` — competitive comparison on multi-modal coverage (GFlowNet
+  vs diffusion) — same `(terminal, reward)` interface, drop-in.
+
+**What it can't do (yet).**
+
+  * Not a learnt large-scale score network — the in-process `fit()` is a
+    diagnostic Hyvärinen score-matching fit of a tiny linear model, not
+    a U-Net.  Real users plug in their own learnt score via
+    ``register(..., score_fn=...)``.
+  * Not a discrete-token text diffuser — `D3PM` covers small categorical
+    alphabets with the canonical absorbing / uniform kernels; tokenwise
+    diffusion over an LLM vocab is a follow-up primitive.
+  * Not a continuous-time consistency-training loop — the consistency
+    sampler accepts a pre-distilled ``consistency_fn``; training the
+    distillation target is the user's job.
 
 ## HTTP / SSE surface
 
