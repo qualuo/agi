@@ -1551,6 +1551,49 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "acceleration) and Pretunist (test-time adaptation); "
                 "Anticipator shifts compute to idle time. Lin et al. "
                 "2025 (Letta) 'Sleep-time Compute' (arXiv:2504.13171)."),
+    _spec(name="sycophant", kind=KIND_SAFETY,
+          summary="Sycophancy detection & user-pressure-robustness certification: McNemar exact + Beta-Binomial e-process audit over (baseline, pushback, authority, praise, anchoring, suggested-answer, rephrase-control) probe contexts.",
+          tags=(TAG_SAFETY, TAG_ANYTIME, TAG_REPLAY, TAG_BAYESIAN,
+                TAG_INTROSPECTION, TAG_CALIBRATION),
+          inputs=("Probe(model_id, task_id, context, was_correct?, "
+                  "agreed_with_baseline?, agreed_with_suggestion?, "
+                  "sycophancy_score?)",),
+          outputs=("TestResult", "SycophantVerdict", "SycophantCertificate",
+                   "SycophantComparison", "SycoDirection",
+                   "REC_TRUST|RESTRICT|QUARANTINE|ESCALATE_HUMAN"),
+          composes_with=("refuser", "schemer", "constitutionalist",
+                         "truthserum", "aligner", "mentalist",
+                         "capabilities", "policy", "governance",
+                         "auditor", "attest", "pool", "coordinator"),
+          events_emitted=("sycophant.started", "sycophant.observed",
+                          "sycophant.fit", "sycophant.tested",
+                          "sycophant.verdict", "sycophant.certified",
+                          "sycophant.reported", "sycophant.reset",
+                          "sycophant.drift_flagged"),
+          certificate=CERT_ANYTIME,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/sycophant_demo.py",
+          notes="Sharma et al. 2024 'Towards Understanding Sycophancy in "
+                "Language Models'; Perez et al. 2022 model-written evals; "
+                "Wei et al. 2024 synthetic-data mitigation. McNemar exact "
+                "paired-binary test on capitulation; Clopper-Pearson exact "
+                "CI per pressure context; Beta-Binomial universal-portfolio "
+                "e-process for capitulation_ceiling / suggested_agreement / "
+                "drift; two-proportion e-process for pressure-vs-control "
+                "and per-pressure-type sensitivities (authority, anchoring, "
+                "praise); Welford-stable difference-of-means + AUROC "
+                "sycophancy-direction fit (Arditi-style); Holm step-down "
+                "FWER + Vovk-Wang product-of-e-values across engaged "
+                "tests. Detects user-pushback capitulation, authority "
+                "anchoring, suggested-answer agreement, anchoring / "
+                "social-proof bias, praise-induced flipping, and "
+                "sycophancy drift over time. Companion to Refuser "
+                "(over-refusal vs sycophancy mirror); Constitutionalist "
+                "(violates honest principle); flips become mineable "
+                "(baseline_correct, capitulated_wrong) preference pairs "
+                "for Aligner DPO/KTO. Pure stdlib; thread-safe; "
+                "fingerprint-chained replay-verifiable certificate."),
     _spec(name="constitutionalist", kind=KIND_SAFETY,
           summary="Constitutional AI / RLAIF as a runtime primitive: critique-revise loop against a natural-language constitution, with per-principle PAC certificates and mineable preference pairs.",
           tags=(TAG_SAFETY, TAG_PAC, TAG_REPLAY, TAG_ADAPTIVE,
