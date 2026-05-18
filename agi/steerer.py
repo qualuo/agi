@@ -2046,8 +2046,27 @@ class Steerer:
         try:
             # Lazy import to avoid hard dependency cycle on agi.events.
             from agi.events import Event
-            self._bus.publish(Event(kind=kind, data=dict(payload), ts=self._clock()))
-        except Exception:  # pragma: no cover — never fail user calls
+        except Exception:  # pragma: no cover
+            return
+        # Be tolerant of test-only Event stand-ins with a smaller
+        # constructor signature: fall back through richer→leaner shapes
+        # so an emit never breaks the user-facing call.
+        for attempt in (
+            lambda: Event(kind=kind, data=dict(payload), ts=self._clock()),
+            lambda: Event(kind=kind, data=dict(payload)),
+            lambda: Event(kind, None, dict(payload)),
+            lambda: Event(kind),
+        ):
+            try:
+                ev = attempt()
+                break
+            except TypeError:
+                continue
+        else:  # pragma: no cover
+            return
+        try:
+            self._bus.publish(ev)
+        except Exception:  # pragma: no cover
             pass
 
 

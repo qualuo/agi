@@ -1878,6 +1878,66 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "vector), Constitutionalist (per-principle vectors). "
                 "Pure stdlib; thread-safe; fingerprint-chained "
                 "replay-verifiable certificate."),
+    _spec(name="personalizer", kind=KIND_LEARNING,
+          summary="Online per-user preference learning: BTL pairwise and KTO unary signals update per-user ridge-regularised adapters anchored to a global prior, with anytime-valid per-candidate score CIs, a Renyi-DP-compositional Gaussian-mechanism budget guard, and a GDPR Article-17 erasure path.",
+          tags=(TAG_RL, TAG_BAYESIAN, TAG_LLM, TAG_PAC, TAG_ADAPTIVE,
+                TAG_REPLAY, TAG_CALIBRATION, TAG_STREAMING),
+          inputs=("PairwisePreference(user_id, features_winner, "
+                  "features_loser, confidence?)",
+                  "UnarySignal(user_id, features, desirable, "
+                  "confidence?)"),
+          outputs=("CandidateScore(features, global_score, "
+                   "personalised_score, mean, ci_low, ci_high, "
+                   "trust, n_observations)",
+                   "UserSummary(theta, n_observations, last_loss, "
+                   "epsilon_spent)",
+                   "PersonalizerReport bundle",
+                   "TRUST_FALLBACK|BLEND|PROMOTE"),
+          composes_with=("aligner", "steerer", "policy", "capabilities",
+                         "privacy", "governance", "refuser", "sycophant",
+                         "confabulator", "constitutionalist", "auditor",
+                         "attest", "coordinator", "pool", "strategist"),
+          events_emitted=("personalizer.started",
+                          "personalizer.observed",
+                          "personalizer.scored",
+                          "personalizer.promoted",
+                          "personalizer.reported",
+                          "personalizer.reset",
+                          "personalizer.user_removed",
+                          "personalizer.dp_budget_updated"),
+          certificate=CERT_PAC,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/personalizer_demo.py",
+          notes="Bradley & Terry 1952; Hunter 2004; Rafailov, Sharma, "
+                "Mitchell, Ermon, Manning, Finn 2023 (arXiv:2305.18290) "
+                "DPO — the canonical pairwise-preference-to-policy "
+                "transform; mirrored at inference time by the per-user "
+                "adapter atop the global prior. Ethayarajh, Xu, Muennighoff, "
+                "Jurafsky, Kiela 2024 (arXiv:2402.01306) Kahneman-Tversky "
+                "Optimization — the unary signal pathway. Gelman & Hill "
+                "2006 hierarchical Bayes — justifies the ridge shrinkage "
+                "of the per-user adapter toward the global prior. "
+                "Maurer & Pontil 2009 empirical Bernstein — per-user "
+                "CI on the residual-variance-derived predictive "
+                "uncertainty. Mironov 2017 (arXiv:1702.07476) Renyi DP "
+                "— compositional accountant for the Gaussian-mechanism "
+                "wrapper on gradient steps; budget exhaustion raises "
+                "PrivacyBudgetExceeded. Pure stdlib SGD with optional "
+                "Gaussian noise; LRU eviction at max_users; remove_user "
+                "implements GDPR Article 17 right-to-erasure with the "
+                "erasure itself recorded on the SHA-256 fingerprint chain "
+                "so the action remains auditable. Composes with Aligner "
+                "(global DPO is the reference policy), Steerer (the "
+                "per-user adapter is a feature in the score; the "
+                "Steerer's certified vector becomes a per-user "
+                "intervention), Policy / Capabilities (per-user score is "
+                "a feature in the router), Privacy (co-issue DP budget). "
+                "The pitch a coordination engine reaches for when shipping "
+                "to many users: every additional interaction with a user "
+                "tightens that user's CI and only that user's — provably "
+                "private, replay-verifiable, and never coupled to a "
+                "weight update on the underlying model."),
 )
 
 
