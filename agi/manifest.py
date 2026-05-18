@@ -1594,6 +1594,69 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "(baseline_correct, capitulated_wrong) preference pairs "
                 "for Aligner DPO/KTO. Pure stdlib; thread-safe; "
                 "fingerprint-chained replay-verifiable certificate."),
+    _spec(name="confabulator", kind=KIND_SAFETY,
+          summary="Hallucination / confabulation certification: semantic-entropy clustering (Farquhar 2024 Nature) + lexical / predictive / SelfCheck detectors fused under Youden-J threshold, anytime-valid one-proportion e-process against a documented hallucination budget, Clopper-Pearson exact rate CI.",
+          tags=(TAG_SAFETY, TAG_ANYTIME, TAG_REPLAY, TAG_BAYESIAN,
+                TAG_INTROSPECTION, TAG_CALIBRATION),
+          inputs=("Trial(prompt_id, samples=(Sample(text, mean_logprob?, "
+                  "n_tokens?), ...), truth?, control?, "
+                  "reference_chosen_index?)",
+                  "EquivalenceOracle: (s1, s2) -> bool "
+                  "(NLI / debater / verifier / lexical)"),
+          outputs=("TrialReport", "ThresholdReport", "AuditReport",
+                   "ConfabulatorCertificate", "ConfabulatorReport",
+                   "REC_TRUST|REGENERATE|RESTRICT|ESCALATE_HUMAN|"
+                   "QUARANTINE"),
+          composes_with=("refuser", "sycophant", "schemer",
+                         "constitutionalist", "verifier", "debater",
+                         "truthserum", "calibration", "conformal",
+                         "auditor", "policy", "governance", "attest",
+                         "pool", "coordinator"),
+          events_emitted=("confabulator.started",
+                          "confabulator.submitted",
+                          "confabulator.scored",
+                          "confabulator.calibrated",
+                          "confabulator.audited",
+                          "confabulator.certified",
+                          "confabulator.reported",
+                          "confabulator.gated",
+                          "confabulator.reset"),
+          certificate=CERT_ANYTIME,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/confabulator_demo.py",
+          notes="Farquhar, Kossen, Kuhn, Gal 2024 Nature 'Detecting "
+                "Hallucinations in Large Language Models Using "
+                "Semantic Entropy'; Kuhn, Gal, Farquhar 2023 ICLR "
+                "(semantic uncertainty); Manakul, Liusie, Gales 2023 "
+                "EMNLP (SelfCheckGPT); Kadavath et al. 2022 "
+                "'Language Models (Mostly) Know What They Know' "
+                "(predictive entropy); Lin, Hilton, Evans 2022 "
+                "(TruthfulQA). Miller 1955 finite-sample plug-in "
+                "entropy correction; Clopper-Pearson 1934 exact "
+                "binomial CI; Hanley-McNeil 1982 AUROC SE; Efron "
+                "1979 bootstrap-percentile CI; Holm 1979 step-down "
+                "FWER; Vovk-Wang 2021 product-of-e-values; "
+                "Ramdas-Grunwald-Vovk-Shafer 2023 anytime-valid "
+                "e-processes; Howard et al. 2021 prior-mean "
+                "martingale. Cluster K samples by bidirectional "
+                "entailment, take Shannon entropy of cluster "
+                "distribution with Miller-Madow bias correction; "
+                "compose with lexical entropy (surface-form), "
+                "length-normalised predictive entropy, and "
+                "SelfCheck consistency under caller-tunable weights; "
+                "Youden-J threshold on labelled pool, bootstrap-"
+                "percentile AUROC CI; sequential one-proportion "
+                "e-process for live hallucination rate against a "
+                "documented budget; verdict + recommendation per "
+                "prompt; control-pool singleton-rate noise floor "
+                "for the equivalence oracle. Companion to Refuser "
+                "(refusal axis), Sycophant (pressure axis), and "
+                "Schemer (deception axis); together they bound the "
+                "four behavioural failure modes a coordination "
+                "engine has to certify before routing high-stakes "
+                "work. Pure stdlib; thread-safe; fingerprint-"
+                "chained replay-verifiable certificate."),
     _spec(name="constitutionalist", kind=KIND_SAFETY,
           summary="Constitutional AI / RLAIF as a runtime primitive: critique-revise loop against a natural-language constitution, with per-principle PAC certificates and mineable preference pairs.",
           tags=(TAG_SAFETY, TAG_PAC, TAG_REPLAY, TAG_ADAPTIVE,
