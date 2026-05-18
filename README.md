@@ -6168,6 +6168,119 @@ update.
     learned dictionary, not against the original computation graph.
     Pair with `Causal` / `Counterfactor` for causal effect identification.
 
+## Scaler — scaling-law inference as a runtime primitive
+
+Every other primitive in the runtime *spends* compute. `Scaler` is the
+primitive that turns **how much compute** into **what capability**. Given
+a table of observed `(model_size, data_tokens, training_loss)` triples
+from completed runs (the runtime's own runs, an internal eval bank, a
+published table from a vendor, or all three), `Scaler` fits one or more
+scaling-law families, produces bootstrap-percentile confidence intervals
+for extrapolated loss at unseen `(N, D)`, and returns the
+**compute-optimal allocation** `(N*, D*)` for any future compute budget
+`C`. Every report carries a PAC-style certificate (held-out RMSE
+Hoeffding + empirical-Bernstein LCB) and a replay-verifiable fingerprint
+chain over the entire ingest/fit/extrapolate trace.
+
+This is the **resource primitive** every coordination engine needs the
+moment it has to decide *"if I give Pretunist 10× more compute, will the
+loss it ships move enough to justify it?"*. A learned scaling law is the
+only honest answer. Without it the coordinator is gambling.
+
+```python
+from agi.scaler import Scaler, ScalerConfig, Observation
+
+s = Scaler(ScalerConfig(family="chinchilla", bootstrap_b=100, seed=0))
+
+# Ingest small-scale grid observations from the eval bank.
+for n in [1e7, 1e8, 1e9, 1e10]:
+    for d in [1e9, 1e10, 1e11]:
+        loss = measure_training_loss(n, d)
+        s.observe(Observation(n_params=n, d_tokens=d, loss=loss))
+
+fit  = s.fit()                              # FitResult: params + RMSE + stderr
+ep   = s.extrapolate(1.5e11, 3e11)          # 95%-CI prediction at unseen scale
+co   = s.compute_optimal(budget_c=1e22)     # closed-form (N*, D*, L*) ← Hoffmann 2022
+cert = s.certificate()                      # held-out RMSE Hoeffding / Bernstein LCB
+```
+
+### Scaling-law families shipped
+
+  * **Chinchilla (Hoffmann et al. 2022)** — the default.
+    `L(N, D) = E + A/N^α + B/D^β`. Closed-form compute-optimal
+    allocation under the standard transformer FLOP constraint
+    `C = 6 N D` lives in `Scaler.compute_optimal()`.
+  * **Kaplan et al. 2020** — the original multiplicative-power-law form
+    `L(N, D) = ((N_c/N)^(α_N/α_D) + D_c/D)^α_D`.
+  * **Broken Neural Scaling Laws (Caballero et al. 2023)** — a
+    one-break-point single-variable model that captures
+    sigmoidal / monotonic-with-bump scaling.
+  * **Bahri et al. 2024** — the single-variable resolution-limited form
+    `L(X) = L_∞ + (X_0/X)^α`, available on both the `N` and `D` axes.
+
+### Algorithmic core (pure stdlib, no NumPy / SciPy / Torch)
+
+  * **Levenberg-Marquardt** least-squares in log-loss space with
+    finite-difference Jacobians, adaptive damping, and parameter
+    bounds enforced by exponential reparameterisation (Stan-style).
+  * **Bootstrap-percentile CI** for any extrapolated `L(N, D)`, with
+    both **case** and **wild-Rademacher residual** resampling
+    (Davidson-Flachaire 2008).
+  * **Hoeffding 1963** and **empirical-Bernstein (Maurer-Pontil 2009)**
+    lower-confidence bounds on the held-out RMSE — the PAC certificate.
+  * **Closed-form compute-optimal allocation** with the Chinchilla
+    parametric form (`N* ∝ C^(β/(α+β))`, `D* ∝ C^(α/(α+β))`),
+    sanity-checked against a 13-point log-grid numerical sweep.
+  * **Replay-verifiable fingerprint** — SHA-256 chain over every
+    `observe / fit / extrapolate / compute_optimal / certify` event so
+    `Attest` can deterministically replay the coordinator's compute
+    decision later.
+
+### Composes with
+
+  * **`Economist` / `Market`** — turn predicted loss reductions into
+    dollar value of additional compute.
+  * **`Stepwiser` / `Selfeval`** — feed observed per-step / per-eval
+    losses back into the fit.
+  * **`Curator`** — budget-allocate across curriculum stages with
+    scaling-law-aware ROI.
+  * **`Continualist` / `Pretunist`** — sized adaptation budgets per
+    task with closed-form `(N*, D*)`.
+  * **`Strategist` / `Portfolio`** — risk-adjusted compute decisions
+    across primitives.
+  * **`Attest` / `Governance`** — fingerprint chain over every
+    observation and every fit.
+  * **`Conformal` / `Calibration`** — held-out CI / PAC bounds on the
+    predicted loss.
+
+### What it can do
+
+  * Recover ground-truth Chinchilla parameters from clean synthetic
+    data to ~1e-4 relative error.
+  * Recover Chinchilla `α`, `β` to within a few percent from 40 noisy
+    `(N, D)` measurements at 1.5% multiplicative noise, with 95%
+    bootstrap CIs that bracket truth on held-out queries.
+  * Return the closed-form Hoffmann-2022 compute-optimal `(N*, D*)`
+    with a numerical-sweep sanity check.
+  * Emit a `ScalerCertificate` containing held-out RMSE, Hoeffding /
+    empirical-Bernstein LCBs, in-range diagnostics, and the
+    fingerprint chain — everything an external auditor needs to
+    replay the decision.
+
+### What it can't do (yet)
+
+  * Not a substitute for actually training the larger model — a fitted
+    scaling law extrapolates the trend, not the surprise. Pair with
+    `Pretunist` / `Continualist` for verified post-extrapolation
+    behaviour.
+  * Not a multi-task scaling law — fits a single `(L, N, D)` family
+    per `Scaler` instance. For per-task scaling, instantiate one
+    `Scaler` per task and combine via `Portfolio`.
+  * Not a guarantee on out-of-family loss minima — if the true law is
+    a broken / sigmoidal shape, fit `FAMILY_BNSL` rather than
+    `FAMILY_CHINCHILLA` and use the held-out RMSE LCB to gate
+    extrapolation distance.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
