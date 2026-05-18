@@ -6281,6 +6281,148 @@ cert = s.certificate()                      # held-out RMSE Hoeffding / Bernstei
     `FAMILY_CHINCHILLA` and use the held-out RMSE LCB to gate
     extrapolation distance.
 
+## Budgeter — compute-optimal test-time inference allocation as a runtime primitive
+
+Where `Scaler` answers *"how much compute should I spend on training?"*,
+`Budgeter` answers the dual question every coordination engine has to
+settle at inference time:
+
+> *Given a task of estimated difficulty `d`, a compute budget `C`, and a
+> roster of inference strategies — parallel best-of-N (Brown et al. 2024
+> "Large Language Monkeys"), self-consistency majority vote
+> (Wang et al. 2022), verifier-guided rerank (Cobbe et al. 2021),
+> process-reward beam search (Lightman et al. 2024 "Let's Verify
+> Step-by-Step"), tree- / MCTS-of-thoughts (Yao et al. 2023), and
+> sequential "think longer" chain-of-thought (OpenAI o1 2024;
+> DeepSeek-R1 2025) — what **mix** of strategies maximises pass rate at
+> budget `C`?*
+
+This is the central question of the test-time-compute scaling paradigm.
+**Snell et al. 2024** ("Scaling LLM Test-Time Compute Optimally Can Be
+More Effective Than Scaling Model Parameters", arXiv:2408.03314) shows
+that an *allocation-aware* test-time policy beats naive best-of-N by up
+to **4× FLOP efficiency** on MATH and that the optimal mix flips
+between parallel and sequential as difficulty rises. Without an
+allocation policy, every additional inference dollar buys a stochastic,
+often-saturated improvement. With one, each dollar buys a predictable
+ΔP(pass), which is exactly the curve an inference business is priced
+on.
+
+```python
+from agi.budgeter import fresh_budgeter, Observation, STRAT_PARALLEL
+
+b = fresh_budgeter(seed=0, bootstrap_b=100, holdout_fraction=0.2)
+
+# Log per-strategy (units, trials, successes) rows from production runs.
+for u in [1, 2, 4, 8, 16, 32, 64, 128]:
+    trials, successes = run_parallel_eval(units=u)
+    b.observe(Observation(strategy=STRAT_PARALLEL, difficulty=0.0,
+                          compute_units=float(u),
+                          trials=trials, successes=successes))
+# (repeat for the other strategies actually exercised)
+
+b.fit()                                 # per-strategy curves with stderr
+alloc = b.allocate(budget=20.0)         # Lagrangian water-fill
+                                        # → 8.66u majority + 16u sequential
+                                        #   + 5.94u verifier + 1u tree/parallel
+                                        #   for P(pass) = 0.991  (CI [0.987, 0.995])
+pareto = b.pareto(min_budget=2.0, max_budget=200.0, n_points=10)
+cert = b.certificate()                  # regret UCB vs per-budget oracle
+                                        # + Hoeffding / Bernstein LCB on held-out
+                                        # + fingerprint chain
+```
+
+### Strategies modeled
+
+  * **`STRAT_PARALLEL`** — independent best-of-N samples. Curve:
+    saturating exponential `p(k) = p_∞ − (p_∞ − p_1) · exp(−k/τ)`
+    (Brown et al. 2024).
+  * **`STRAT_MAJORITY`** — self-consistency vote. Curve: logistic
+    phase-transition over a modal-correct rate (de Moivre-Laplace).
+  * **`STRAT_VERIFIER`** — best-of-N + learned verifier with
+    informativeness `r ∈ [0, 1]`. Curve:
+    `p(k) = p_∞ − (p_∞ − p_1) · (1−r)^{k−1}`. `r = 0` recovers
+    parallel; `r = 1` recovers oracle-best.
+  * **`STRAT_BEAM`** — process-reward beam search (Lightman 2024).
+    Same family as verifier with width replacing samples.
+  * **`STRAT_TREE`** — saturating power-law in rollouts
+    `p(n) = p_∞ − (p_∞ − p_1) / (1 + n/n_0)^γ` (MCTS-of-thoughts).
+  * **`STRAT_SEQUENTIAL`** — "think longer" CoT. Saturating
+    exponential in thinking-token budget (o1, R1).
+
+### Algorithmic core (pure stdlib, no NumPy / SciPy / Torch)
+
+  * **Levenberg-Marquardt** in unconstrained log/logit space with
+    finite-difference Jacobians, adaptive damping, and binomial
+    deviance residuals (McCullagh-Nelder 1989).
+  * **Lagrangian water-filling** allocator. Bisects the Lagrange
+    multiplier and for each `λ` picks the per-strategy compute that
+    maximises `−log(1 − p(u)) − λ · cost(u)` on a log-spaced grid.
+    Returns `({strategy: units}, {strategy: cost})`.
+  * **Bootstrap-percentile CI** (Efron 1979) on every per-strategy
+    curve *and* on the ensemble pass under the
+    independent-strategies bound `1 − ∏(1 − p_i)`.
+  * **Unbiased pass@k estimator** (Chen et al. 2021, eq. 1) —
+    `1 − C(n−c, k) / C(n, k)`.
+  * **Replay-verifiable PAC certificate** with Hoeffding (1963)
+    and empirical-Bernstein (Maurer-Pontil 2009) lower-confidence
+    bounds on the held-out pass rate, plus a regret upper bound vs
+    the *per-budget oracle* (best single-strategy at the same total
+    spend).
+  * **SHA-256 fingerprint chain** over every observe / fit /
+    allocate / certify event — drop-in for `Attest`.
+
+### Composes with
+
+  * **`Scaler`** — train-time scaling. Together they span the three
+    axes of compute spend; the coordinator can ask both *"will more
+    training help?"* and *"will more inference help?"*
+    on a single ΔP/$ currency.
+  * **`Anticipator`** — sleep-time / pre-compute. The third axis:
+    Budgeter surfaces *online* compute; Anticipator surfaces
+    *offline* compute.
+  * **`Speculator`** — decoding-pass compute. Speculator buys
+    cheaper tokens; Budgeter decides how many to draw.
+  * **`Stepwiser` / `Verifier`** — supply the verifier
+    informativeness `r` for `STRAT_VERIFIER` and `STRAT_BEAM`.
+  * **`Searcher`** — implements `STRAT_TREE` / MCTS-of-thoughts as
+    a concrete search algorithm.
+  * **`Economist` / `Market`** — turn ΔP into dollars per passed
+    task, the headline unit-economic metric.
+  * **`Strategist` / `Portfolio`** — risk-adjusted strategy
+    selection under uncertainty bands.
+  * **`Conformal` / `Calibration`** — held-out coverage of the
+    predicted pass rate.
+  * **`Attest` / `Governance`** — replay-verifiable fingerprint
+    chain over every observation, fit, and allocation.
+
+### What it can do
+
+  * Recover the per-strategy ceiling `p_∞` to within ~0.08 from ~200
+    trials at each of 9 compute grid points, on multiplicative-binomial
+    synthetic data.
+  * Return a single ranked allocation with bootstrap CIs and a regret
+    bound against the per-budget oracle — the only allocation
+    primitive in the runtime that does this with a PAC certificate.
+  * Plot a `(cost, predicted_pass)` Pareto frontier with explicit
+    *active strategies* per point — the row-format of an inference
+    pricing book.
+  * Emit a `BudgeterCertificate` containing held-out Hoeffding /
+    empirical-Bernstein LCBs, regret UCB, and the fingerprint chain —
+    everything an external auditor needs to replay the decision.
+
+### What it can't do (yet)
+
+  * Doesn't track *per-task* difficulty unless rows carry a
+    difficulty estimate. Use `Inducer` / `Calibration` to bucket
+    upstream.
+  * Assumes strategies are conditionally independent given the task —
+    a pessimistic-bound view. For *correlated* strategies (e.g. two
+    parallel runs on the same prompt) bootstrap CIs over-cover and
+    the alloc is conservative.
+  * Doesn't learn *online* — `observe → fit` is a batch update.
+    Pair with `Continualist` for streaming.
+
 ## Schemer — strategic-deception / sandbagging detection as a runtime primitive
 
 A coordination engine that dispatches work to powerful but only partially
