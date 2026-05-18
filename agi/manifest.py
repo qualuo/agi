@@ -1492,6 +1492,31 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "Mantel permutation consistency. Product of independent "
                 "e-values is e-valid under any dependence (Vovk-Wang 2021); "
                 "Holm step-down for FWER across tests."),
+    _spec(name="anticipator", kind=KIND_COORDINATION,
+          summary="Sleep-time / anticipatory compute: pre-compute likely-next queries on idle GPU and serve real ones from cache with a hit-rate certificate.",
+          tags=(TAG_ADAPTIVE, TAG_STREAMING, TAG_PAC, TAG_REPLAY,
+                TAG_RETRIEVAL, TAG_PLANNING),
+          inputs=("ContextRecord(ctx_id, ctx, deadline_hint)",
+                  "Forecaster -> Iterable[Candidate]",
+                  "Answerer -> (answer, realised_cost)"),
+          outputs=("Plan", "PrecomputeResult", "ServeResult",
+                   "AnticipatorCertificate", "AnticipatorReport"),
+          composes_with=("forecaster", "predictor", "embedder", "costs",
+                         "economist", "scaler", "scheduler", "memory",
+                         "attest", "governance", "coordinator"),
+          certificate=CERT_PAC,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/anticipator_demo.py",
+          notes="0-1 knapsack (greedy ratio + exact branch-and-bound) over "
+                "candidate (value, cost) pairs under hard sleep-time "
+                "budget; Wilson + Hoeffding hit-rate CIs; empirical-"
+                "Bernstein LCB on saved cost per serve; Merkle "
+                "fingerprint chain over the entire pre-compute/serve "
+                "loop. Companion to Speculator (active-stream "
+                "acceleration) and Pretunist (test-time adaptation); "
+                "Anticipator shifts compute to idle time. Lin et al. "
+                "2025 (Letta) 'Sleep-time Compute' (arXiv:2504.13171)."),
 )
 
 
