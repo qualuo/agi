@@ -1688,6 +1688,68 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "deception); Constitutionalist is the per-interaction "
                 "gate.  Merkle fingerprint chain over judges, revisions "
                 "and verdicts."),
+    _spec(name="watermarker", kind=KIND_SAFETY,
+          summary="Synthetic-content provenance certification: KGW green-list watermark detection (Kirchenbauer et al. 2023 ICML) with one-sided binomial test, Clopper-Pearson exact rate CI, anytime-valid Beta-Binomial e-process audit, AUROC threshold sweep, Holm + BH multi-test fusion, and SHA-256 fingerprint chain.",
+          tags=(TAG_SAFETY, TAG_ANYTIME, TAG_REPLAY, TAG_BAYESIAN,
+                TAG_INTROSPECTION, TAG_CALIBRATION, TAG_STREAMING),
+          inputs=("WatermarkSpec(name, key, gamma, delta, hash_kind, "
+                  "left_context, selfhash?)",
+                  "Trial(document=Document(doc_id, tokens=(Token(token_id, "
+                  "text?), ...)), spec, truth?, control?)",
+                  "Tokenizer: text -> list[Token] (optional; "
+                  "default_tokenizer if absent)"),
+          outputs=("TrialReport", "ThresholdReport", "AuditReport",
+                   "WatermarkCertificate", "WatermarkerReport",
+                   "REC_TRUST|RESTRICT|QUARANTINE|BLOCK|ESCALATE_HUMAN"),
+          composes_with=("attest", "refuser", "sycophant", "confabulator",
+                         "constitutionalist", "auditor", "governance",
+                         "policy", "coordinator", "pool", "strategist",
+                         "privacy", "attributor"),
+          events_emitted=("watermarker.started",
+                          "watermarker.submitted",
+                          "watermarker.scored",
+                          "watermarker.calibrated",
+                          "watermarker.audited",
+                          "watermarker.certified",
+                          "watermarker.reported",
+                          "watermarker.gated",
+                          "watermarker.reset"),
+          certificate=CERT_ANYTIME,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/watermarker_demo.py",
+          notes="Kirchenbauer, Geiping, Wen, Katz, Miers, Goldstein "
+                "2023 ICML 'A Watermark for Large Language Models' — "
+                "headline green-list construction; Kirchenbauer et al. "
+                "2024 ICLR 'On the Reliability of Watermarks' — selfhash "
+                "variant; Aaronson 2022 / Christ-Gunn-Zamir 2024 STOC "
+                "'Undetectable Watermarks' — cryptographic Gumbel "
+                "scheme as forward-compatible spec slot. Statistical "
+                "machinery: Clopper-Pearson 1934 exact rate CI; "
+                "Cochran 1952 normal-approximation rule with continuity "
+                "correction; Ville 1939 anytime-valid martingale "
+                "inequality; Howard-Ramdas-McAuliffe-Sekhon 2021 "
+                "prior-mean Beta-Binomial e-process; Hanley-McNeil "
+                "1982 / Efron 1979 bootstrap-percentile AUROC CI; "
+                "Youden 1950 J = TPR - FPR threshold; Holm 1979 "
+                "step-down FWER; Vovk-Wang 2021 product-of-e-values; "
+                "Benjamini-Hochberg 1995 FDR over per-document tests. "
+                "Polarity-aware one-sided binomial p-value at γ; "
+                "detect mode rejects upward (text marked); verify "
+                "mode rejects downward (mark stripped). The provenance "
+                "gate a coordination engine reaches for at ingest "
+                "(EU AI Act disclosure), at egress (C2PA-style content "
+                "credential paired with attest), and over long streams "
+                "(anytime-valid alert on adversarial dewatermarking or "
+                "key compromise). Companion to Confabulator (semantic-"
+                "entropy hallucination axis), Refuser (refusal axis), "
+                "Sycophant (pressure axis), Schemer (deception axis), "
+                "Constitutionalist (per-interaction principle gate), "
+                "and Attest (tamper-evident receipt) — together the "
+                "six bound the provenance + behaviour failure modes "
+                "any frontier-model routing surface must certify. Pure "
+                "stdlib; thread-safe; fingerprint-chained replay-"
+                "verifiable certificate."),
 )
 
 
