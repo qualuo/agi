@@ -1457,6 +1457,21 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
           composes_with=("server", "mcp", "protocol", "capabilities", "strategist"),
           determinism=DETERMINISM_PURE,
           notes="Single source of truth for primitive metadata; auto-discovery is a dev-time safety net."),
+    _spec(name="scaler", kind=KIND_SCIENCE,
+          summary="Scaling-law inference: predict loss at unseen (N, D) and the compute-optimal allocation.",
+          tags=(TAG_NUMERICAL, TAG_PAC, TAG_REPLAY, TAG_CALIBRATION),
+          inputs=("(N, D, loss) observations",),
+          outputs=("FitResult", "ExtrapolatePoint", "ComputeOptimal", "ScalerCertificate"),
+          composes_with=("economist", "stepwiser", "curator", "continualist",
+                         "pretunist", "strategist", "portfolio", "selfeval",
+                         "attest", "conformal"),
+          certificate=CERT_PAC,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/scaler_demo.py",
+          notes="Closed-form Chinchilla compute-optimal allocation; "
+                "Kaplan / BNSL / Bahri alternative families; bootstrap-percentile CI; "
+                "Hoeffding + empirical-Bernstein held-out RMSE LCB."),
 )
 
 
