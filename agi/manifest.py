@@ -1481,7 +1481,7 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                    "REC_TRUST|RESTRICT|QUARANTINE|ESCALATE_HUMAN"),
           composes_with=("auditor", "deliberator", "truthserum", "aligner",
                          "arbiter", "governance", "attest", "mentalist",
-                         "mechanizer", "strategist", "portfolio"),
+                         "mechanizer", "strategist", "portfolio", "refuser"),
           certificate=CERT_ANYTIME,
           determinism=DETERMINISM_SEEDED,
           dependency=DEP_STDLIB,
@@ -1492,6 +1492,40 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "Mantel permutation consistency. Product of independent "
                 "e-values is e-valid under any dependence (Vovk-Wang 2021); "
                 "Holm step-down for FWER across tests."),
+    _spec(name="refuser", kind=KIND_SAFETY,
+          summary="Refusal-direction analysis & jailbreak-resistance certification: Clopper-Pearson + Beta-Binomial e-process audit over (harmful, benign, jailbreak, paraphrase, baseline) probe contexts.",
+          tags=(TAG_SAFETY, TAG_ANYTIME, TAG_REPLAY, TAG_BAYESIAN,
+                TAG_INTROSPECTION, TAG_CALIBRATION),
+          inputs=("Probe(model_id, task_id, context, refused, "
+                  "compliance_marker?, refusal_score?)",),
+          outputs=("TestResult", "RefuserVerdict", "RefuserCertificate",
+                   "RefuserComparison", "RefusalDirection",
+                   "REC_TRUST|RESTRICT|QUARANTINE|ESCALATE_HUMAN"),
+          composes_with=("schemer", "constitutionalist", "mechanizer",
+                         "capabilities", "policy", "governance",
+                         "anticipator", "auditor", "attest", "pool",
+                         "portfolio", "strategist"),
+          events_emitted=("refuser.started", "refuser.observed",
+                          "refuser.fit", "refuser.tested",
+                          "refuser.verdict", "refuser.certified",
+                          "refuser.reported", "refuser.reset",
+                          "refuser.drift_flagged"),
+          certificate=CERT_ANYTIME,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/refuser_demo.py",
+          notes="Clopper-Pearson exact CI on refusal rate; "
+                "Beta-Binomial universal-portfolio e-process for "
+                "refusal_floor / overrefusal_ceiling / drift; "
+                "two-proportion e-process for clean-vs-jailbreak and "
+                "clean-vs-paraphrase invariance; Welford-stable "
+                "difference-of-means + AUROC refusal-direction fit "
+                "(Arditi et al. 2024); Holm step-down FWER across "
+                "engaged tests. Detects under-refusal, jailbreak "
+                "susceptibility, refusal erosion, over-refusal, and "
+                "refusal-text counterfeit via the compliance_marker "
+                "override. Pure stdlib; thread-safe; fingerprint-"
+                "chained replay-verifiable certificate."),
     _spec(name="anticipator", kind=KIND_COORDINATION,
           summary="Sleep-time / anticipatory compute: pre-compute likely-next queries on idle GPU and serve real ones from cache with a hit-rate certificate.",
           tags=(TAG_ADAPTIVE, TAG_STREAMING, TAG_PAC, TAG_REPLAY,
