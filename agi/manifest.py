@@ -1472,6 +1472,63 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
           notes="Closed-form Chinchilla compute-optimal allocation; "
                 "Kaplan / BNSL / Bahri alternative families; bootstrap-percentile CI; "
                 "Hoeffding + empirical-Bernstein held-out RMSE LCB."),
+    _spec(name="budgeter", kind=KIND_COORDINATION,
+          summary="Compute-optimal test-time inference allocation: fit per-strategy pass@k curves (parallel best-of-N, self-consistency majority vote, verifier-rerank, beam-of-thought, MCTS-of-thoughts, sequential CoT) and Lagrangian water-fill a budget across them.",
+          tags=(TAG_NUMERICAL, TAG_PAC, TAG_REPLAY, TAG_ADAPTIVE,
+                TAG_MULTI_OBJECTIVE, TAG_PLANNING, TAG_CALIBRATION),
+          inputs=("StrategySpec(name, unit_cost, verifier_info, "
+                  "min_units, max_units)",
+                  "Observation(strategy, difficulty, compute_units, "
+                  "trials, successes)",
+                  "budget (float, in the spec's common currency)",
+                  "difficulty estimate (optional; pools rows within kernel)"),
+          outputs=("StrategyFit per strategy",
+                   "Allocation (per-strategy units, cost, pass + ensemble CI)",
+                   "ParetoPoint frontier of (cost, predicted_pass)",
+                   "BudgeterCertificate (Hoeffding + empirical-Bernstein "
+                   "LCB on held-out pass; regret UCB vs per-budget oracle)",
+                   "BudgeterReport bundle"),
+          composes_with=("scaler", "anticipator", "speculator", "stepwiser",
+                         "verifier", "searcher", "economist", "market",
+                         "strategist", "portfolio", "conformal", "calibration",
+                         "attest", "governance", "coordinator", "pool"),
+          events_emitted=("budgeter.started", "budgeter.observed",
+                          "budgeter.fit", "budgeter.extrapolated",
+                          "budgeter.allocated", "budgeter.pareto",
+                          "budgeter.certified", "budgeter.reported",
+                          "budgeter.reset"),
+          certificate=CERT_PAC,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/budgeter_demo.py",
+          notes="Snell, Lee, Xu, Kumar 2024 (arXiv:2408.03314) "
+                "'Scaling LLM Test-Time Compute Optimally' — the canonical "
+                "result that an allocation-aware policy beats naive best-of-N "
+                "by up to 4x FLOP efficiency on MATH and that the optimal mix "
+                "flips between parallel and sequential as difficulty rises. "
+                "Brown et al. 2024 (arXiv:2407.21787) 'Large Language Monkeys' "
+                "establishes the empirical pass@k = 1 - (1 - p1)^k Bernoulli-"
+                "superposition form for parallel sampling and the saturating "
+                "exponential near the ceiling. Wang et al. 2022 "
+                "(arXiv:2203.11171) self-consistency majority vote curve. "
+                "Cobbe et al. 2021 (arXiv:2110.14168) verifier-guided rerank: "
+                "informativeness r in [0,1] interpolates between parallel "
+                "(r=0) and oracle-best (r=1). Lightman et al. 2024 "
+                "(arXiv:2305.20050) process-reward beam search. Yao et al. "
+                "2023 (arXiv:2305.10601) Tree-of-Thoughts. OpenAI 2024 / "
+                "DeepSeek-R1 2025 (arXiv:2501.12948) sequential 'think "
+                "longer' CoT with saturating-exponential law in thinking "
+                "tokens. Chen et al. 2021 (arXiv:2107.03374) unbiased pass@k "
+                "estimator. Allocation: Lagrangian water-filling on log-"
+                "spaced compute grids over the additive log-(1 - p) "
+                "objective; bisection on the multiplier. Certificate: "
+                "Hoeffding (1963) + Maurer-Pontil (2009) empirical-Bernstein "
+                "LCBs on held-out pass; regret UCB vs the best single-"
+                "strategy at the same total spend. Levenberg-Marquardt fit "
+                "with binomial deviance residuals (McCullagh-Nelder 1989); "
+                "Efron (1979) case bootstrap CIs on every curve and on the "
+                "combined ensemble pass. Pure stdlib; thread-safe; "
+                "fingerprint-chained replay-verifiable certificate."),
     _spec(name="schemer", kind=KIND_SAFETY,
           summary="Strategic-deception / sandbagging detection: anytime-valid e-process tests over a model's behavioural ledger.",
           tags=(TAG_SAFETY, TAG_ANYTIME, TAG_REPLAY, TAG_BAYESIAN,
