@@ -1472,6 +1472,26 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
           notes="Closed-form Chinchilla compute-optimal allocation; "
                 "Kaplan / BNSL / Bahri alternative families; bootstrap-percentile CI; "
                 "Hoeffding + empirical-Bernstein held-out RMSE LCB."),
+    _spec(name="schemer", kind=KIND_SAFETY,
+          summary="Strategic-deception / sandbagging detection: anytime-valid e-process tests over a model's behavioural ledger.",
+          tags=(TAG_SAFETY, TAG_ANYTIME, TAG_REPLAY, TAG_BAYESIAN,
+                TAG_INTROSPECTION),
+          inputs=("Trial(model_id, task_id, context, outcome, latent_features)",),
+          outputs=("TestResult", "SchemerVerdict", "SchemerCertificate",
+                   "REC_TRUST|RESTRICT|QUARANTINE|ESCALATE_HUMAN"),
+          composes_with=("auditor", "deliberator", "truthserum", "aligner",
+                         "arbiter", "governance", "attest", "mentalist",
+                         "mechanizer", "strategist", "portfolio"),
+          certificate=CERT_ANYTIME,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/schemer_demo.py",
+          notes="Honeypot SPRT / universal-portfolio e-process; paired "
+                "Eval-Observed-vs-Unobserved sign test; high-vs-low-stakes "
+                "refusal gap; deceptive-marker rate; strategic-refusal gap; "
+                "Mantel permutation consistency. Product of independent "
+                "e-values is e-valid under any dependence (Vovk-Wang 2021); "
+                "Holm step-down for FWER across tests."),
 )
 
 
