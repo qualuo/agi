@@ -1807,6 +1807,77 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "any frontier-model routing surface must certify. Pure "
                 "stdlib; thread-safe; fingerprint-chained replay-"
                 "verifiable certificate."),
+    _spec(name="steerer", kind=KIND_SAFETY,
+          summary="Contrastive activation steering / representation engineering: fit a one-dimensional behavioural-axis direction (CAA, LAT, Fisher-LDA, logistic-probe) on contrastive activation pairs, recommend an inference-time coefficient, and anytime-valid certify the realised outcome lift over a non-steered control.",
+          tags=(TAG_NUMERICAL, TAG_INTROSPECTION, TAG_SAFETY, TAG_ANYTIME,
+                TAG_REPLAY, TAG_CALIBRATION, TAG_ADAPTIVE),
+          inputs=("ContrastivePair(task_id, positive, negative, split?, weight?)",
+                  "DoseOutcome(task_id, coefficient, outcome, "
+                  "outcome_score?, weight?)",
+                  "Activation vector at apply / ablate / clamp / rank-one time"),
+          outputs=("SteererFit(direction, separability_auroc + CI, cohen_d, "
+                   "leakage_auroc)",
+                   "SteererCertificate(verdict, recommendation, tests, "
+                   "recommended_coefficient, outcome_lift, lift_ci)",
+                   "SteererReport bundle",
+                   "REC_PROMOTE|HOLD|REJECT|FLIP"),
+          composes_with=("refuser", "sycophant", "confabulator",
+                         "constitutionalist", "mechanizer", "schemer",
+                         "capabilities", "policy", "governance",
+                         "anticipator", "attest", "auditor", "coordinator",
+                         "pool", "strategist", "portfolio"),
+          events_emitted=("steerer.started",
+                          "steerer.pair_observed",
+                          "steerer.outcome_observed",
+                          "steerer.fit",
+                          "steerer.tested",
+                          "steerer.certified",
+                          "steerer.recommended",
+                          "steerer.reported",
+                          "steerer.reset"),
+          certificate=CERT_ANYTIME,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/steerer_demo.py",
+          notes="Zou, Phan, Chen et al. 2023 (arXiv:2310.01405) "
+                "'Representation Engineering' — LAT, the paired-"
+                "difference PCA estimator. Panickssery, Gabrieli, "
+                "Schulz, Tong, Hubinger, Turner 2024 (arXiv:2312.06681) "
+                "'Steering Llama 2 via Contrastive Activation Addition' "
+                "— CAA, the empirically-strongest constant-memory "
+                "estimator. Arditi et al. 2024 (arXiv:2406.11717) "
+                "'Refusal in Language Models is Mediated by a Single "
+                "Direction' — clean/jailbreak contrast reproduces the "
+                "refusal-direction estimator. Park, Choe, Veitch 2024 "
+                "(arXiv:2311.03658) 'Linear Representation Hypothesis' "
+                "— justifies one-dimensional axes; motivates Fisher-LDA "
+                "rescaling. Tigges, Hollinsworth, Geiger, Nanda 2023 "
+                "(arXiv:2310.15154) — probe-classifier-normal steering. "
+                "Subramani, Suresh, Peters 2022 (arXiv:2205.05124) — "
+                "the original (positive, negative) latent-vector "
+                "formulation. Templeton et al. (Anthropic) 2024 "
+                "'Scaling Monosemanticity' — feature steering at "
+                "scale. Wu et al. 2024 (arXiv:2404.03592) ReFT — "
+                "rank-1 representation fine-tuning, mirrored by "
+                "apply_rank_one() at inference. Statistical machinery: "
+                "Hanley-McNeil 1982 AUROC with Mason-Graham normal-"
+                "approximation CI; Fisher 1936 LDA with Ledoit-Wolf "
+                "2004 shrinkage; Welford 1962 streaming moments; "
+                "Spearman rho with t-approximation p for the dose-"
+                "response monotonicity test; Waudby-Smith-Ramdas 2024 "
+                "hedged-capital betting e-process with grid-mixture "
+                "over the bet parameter for the anytime-valid outcome-"
+                "lift confidence sequence. Replay-verifiable SHA-256 "
+                "fingerprint chain over every observation and verdict. "
+                "Companion to Mechanizer (decompose) — Steerer "
+                "*applies* a feature direction at inference and "
+                "certifies the realised behavioural shift without "
+                "touching weights. Composes with the safety stack: "
+                "Refuser (refusal-direction steering), Sycophant "
+                "(robustness vector), Confabulator (factuality "
+                "vector), Constitutionalist (per-principle vectors). "
+                "Pure stdlib; thread-safe; fingerprint-chained "
+                "replay-verifiable certificate."),
 )
 
 
