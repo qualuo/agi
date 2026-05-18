@@ -7027,6 +7027,19 @@ Subagent token usage rolls up into the parent session for honest accounting.
   et al. 2024) — Holm step-down + Vovk-Wang product-of-e-values
   give the coordinator a single PASS/WARN/FAIL verdict and a
   fingerprinted certificate per audited model (`agi.refuser`)
+- **Detect hallucinations / confabulations** with the semantic-entropy
+  detector of Farquhar et al. 2024 (*Nature*) — cluster K sampled
+  completions by bidirectional entailment, take the Shannon entropy
+  of the cluster distribution (Miller–Madow-corrected) plus lexical
+  entropy, predictive entropy (Kadavath et al. 2022) and SelfCheck
+  consistency (Manakul et al. 2023), fuse under caller weights, fit
+  a Youden-J threshold against a labelled pool, report AUROC under a
+  Hanley-McNeil bootstrap CI, and audit the live hallucination rate
+  against a documented budget via an anytime-valid one-proportion
+  e-process (Howard et al. 2021) with Clopper-Pearson exact rate
+  CIs — verdict + recommendation (`trust` / `regenerate` /
+  `restrict` / `escalate_human` / `quarantine`) per prompt, with a
+  fingerprinted certificate per audited worker (`agi.confabulator`)
 
 ## What it can't do (yet)
 
