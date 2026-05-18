@@ -6416,6 +6416,140 @@ the final fingerprinted certificate per model.
   * One Schemer audits one model. Combine multiple Schemers via
     `auditor` for fleet-level multiplicity control.
 
+## Constitutionalist — Constitutional AI / RLAIF as a runtime primitive
+
+Constitutional AI (Bai et al. 2022, Anthropic — *Constitutional AI:
+Harmlessness from AI Feedback*, arXiv:2212.08073) is the only published
+recipe that has trained a frontier-deployed chatbot to be both helpful
+and harmless without RLHF on human-written harmlessness labels.  It
+gives the model a short list of natural-language **principles** (the
+constitution) and runs a *critique → revise* loop driven by AI
+feedback. `Constitutionalist` is the runtime-primitive expression of
+that recipe: a deterministic, replay-verifiable critique-revise loop
+with **per-principle PAC certificates** on the realised violation rate,
+inline gate semantics for coordinators, and mineable preference pairs
+for downstream Aligner (DPO/KTO) training — the RLAIF outer loop.
+
+```python
+from agi.constitutionalist import (
+    Constitutionalist, ConstitutionalistConfig,
+    Constitution, Principle, PrincipleScore,
+    SEVERITY_CRITICAL, SEVERITY_VIOLATION, SEVERITY_WARN,
+    AGG_WEIGHTED_GEOMETRIC,
+)
+
+con = Constitution(principles=(
+    Principle("helpful",      "Address the user's question.",
+              severity=SEVERITY_WARN,       weight=1.0, threshold=0.5),
+    Principle("honest",       "Do not assert facts the model is unsure of.",
+              severity=SEVERITY_VIOLATION,  weight=2.0, threshold=0.65),
+    Principle("no-weapons",   "No actionable WMD manufacturing help.",
+              severity=SEVERITY_CRITICAL,   weight=4.0, threshold=0.9),
+    Principle("no-pii",       "No personally-identifying combos.",
+              severity=SEVERITY_CRITICAL,   weight=4.0, threshold=0.9),
+    Principle("no-copyright", "No long verbatim copyrighted spans.",
+              severity=SEVERITY_VIOLATION,  weight=2.0, threshold=0.7),
+))
+
+c = Constitutionalist(
+    ConstitutionalistConfig(
+        violation_threshold=0.5, accept_threshold=0.85,
+        max_iters=3, aggregator=AGG_WEIGHTED_GEOMETRIC,
+        refuse_on_critical=True, refuse_after_iters=True,
+        alpha=0.05, joint_correction=True,
+    ),
+    constitution=con,
+)
+
+# Critic and Reviser are injected callables. An LLM judge or a
+# rule-based scorer both work — the primitive is shape-agnostic.
+verdict = c.gate(
+    "T-001", text="The patient should definitely take aspirin.",
+    critic=my_critic, reviser=my_reviser,
+)
+print(verdict.action, verdict.text)
+# revise  "I'm not sure, but the patient may benefit from aspirin."
+
+# Mine training pairs for the Aligner DPO/KTO loop.
+pairs = c.mine_preferences()
+# [{"item_id": "T-001", "rejected": ..., "chosen": ..., "rejected_score": 0.71,
+#   "chosen_score": 0.92, "violations_rejected": ["honest"], ...}]
+
+# Per-principle PAC certificate (anytime-valid, Holm-corrected FWER).
+cert = c.certificate()
+cert.principles[0].wilson_lo, cert.principles[0].wilson_hi  # two-sided 95% CI
+cert.principles[0].hoeffding_hi                             # one-sided UB
+cert.aggregate_eb_lo                                        # Maurer-Pontil 2009
+cert.fingerprint                                            # Merkle chain
+```
+
+### What `Constitutionalist` ships
+
+* **Aggregators.**  Worst-principle, weighted mean, *weighted geometric*
+  (Bai-style soft minimum: any near-zero score pulls the aggregate
+  toward zero), and soft-min log-sum-exp with a temperature knob.
+* **Three-action gate.**  `accept` / `revise` / `refuse` with a stable
+  deterministic rationale.  Critical-severity violations force `refuse`
+  immediately and skip the revise loop — the canonical hard-stop policy.
+* **Best-of-N revision.**  Generate `N` independent trajectories under
+  per-branch seeds; the highest-aggregate trajectory wins.  Every branch
+  is fully audited.
+* **Preference mining.**  `mine_preferences()` emits one `(rejected,
+  chosen)` pair per item whose revision strictly improved.  These plug
+  directly into `agi.aligner.Aligner` for DPO / IPO / KTO / cDPO / SimPO
+  / SLiC / ORPO / RDPO training — the RLAIF outer loop.
+* **PAC certificates.**  Per-principle Wilson two-sided CIs, Hoeffding
+  one-sided UBs on the violation rate, and Maurer-Pontil 2009
+  empirical-Bernstein LCB on the aggregate score, with **Holm
+  step-down** family-wise error control across principles (Vovk-Wang
+  2021).  All bounds are valid at any stopping time.
+* **Replay-verifiable receipts.**  SHA-256 Merkle chain over every
+  `started`, `judged`, `revised`, `accepted`, `refused`, `bestof`,
+  `certified`, `reported` event.  Deterministic given seed and an
+  idempotent critic/reviser.
+
+### How a coordination engine uses it
+
+The coordinator treats `Constitutionalist` like every other primitive:
+inject the critic + reviser (pluggable — LLM judge, rule-based scorer,
+or the `agi.debater` multi-agent ensemble for higher-trust verdicts),
+register items, call `gate(item_id, ...)`, subscribe to the EventBus
+for streaming evidence, and ask for a certificate at any cadence.  Two
+canonical patterns:
+
+  * **Inline policy gate.**  Every model output flows through `gate`;
+    `accept` proceeds, `revise` swaps in the revised text, `refuse`
+    short-circuits to the safe-completion path.  Per-principle and
+    aggregate rates are surfaced over the EventBus for `governance` to
+    enforce hard budgets and for `attest` to append to the audit ledger.
+
+  * **Best-of-N alignment mining.**  At low-priority hours the
+    coordinator runs `bestof(item_id, n=N, ...)` over a buffer of
+    accepted-with-warning items, mines preferences, and forwards them
+    to `agi.aligner`.  The Holm-corrected per-principle certificate
+    proves the realised violation rate to an external auditor — the
+    *deployment safety story* a governance team can sign.
+
+### Composes with
+
+`aligner` (consume mined `(rejected, chosen)` pairs), `schemer`
+(cross-interaction deception detection — Constitutionalist enforces
+per-interaction policy, Schemer enforces cross-interaction policy),
+`debater` (debate-as-critic), `governance` (hard refuse / quota policy
+at the boundary), `attest` (append the certificate to the audit
+ledger), `deliberator` (escalate ambiguous critiques), `attributor`
+(per-principle data attribution on adapted models), `coordinator`.
+
+### What it can't do (yet)
+
+  * The critic is only as honest as you make it.  For high-stakes
+    gates pair a baseline rule-based critic with an LLM critic and
+    require *both* to flag a violation; or route through `agi.debater`.
+  * Aggregators are weighted, not learned.  A future iteration would
+    let Aligner train per-principle weights from preference data.
+  * Single-constitution per instance.  Multi-constitution dispatch
+    lives in the coordinator, not the primitive.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process

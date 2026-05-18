@@ -1517,6 +1517,37 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "acceleration) and Pretunist (test-time adaptation); "
                 "Anticipator shifts compute to idle time. Lin et al. "
                 "2025 (Letta) 'Sleep-time Compute' (arXiv:2504.13171)."),
+    _spec(name="constitutionalist", kind=KIND_SAFETY,
+          summary="Constitutional AI / RLAIF as a runtime primitive: critique-revise loop against a natural-language constitution, with per-principle PAC certificates and mineable preference pairs.",
+          tags=(TAG_SAFETY, TAG_PAC, TAG_REPLAY, TAG_ADAPTIVE,
+                TAG_LLM, TAG_INTROSPECTION, TAG_MULTI_OBJECTIVE),
+          inputs=("Constitution(principles=(Principle, ...))",
+                  "Critic(text, constitution) -> Iterable[PrincipleScore]",
+                  "Reviser(text, critique) -> str"),
+          outputs=("Critique", "Revision", "Verdict",
+                   "PrincipleCertificate", "ConstitutionalistCertificate",
+                   "(rejected, chosen) preference pairs"),
+          composes_with=("aligner", "schemer", "debater", "governance",
+                         "attest", "deliberator", "attributor",
+                         "coordinator", "auditor", "selfeval"),
+          certificate=CERT_PAC,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/constitutionalist_demo.py",
+          notes="Bai et al. 2022 'Constitutional AI: Harmlessness from "
+                "AI Feedback' (arXiv:2212.08073) — SL-CAI inner loop "
+                "expressed as a runtime primitive.  Aggregators: worst-"
+                "principle, weighted mean, weighted geometric (Bai-style "
+                "soft minimum), soft-min log-sum-exp.  Per-principle "
+                "Wilson + Hoeffding violation-rate CIs with Holm step-"
+                "down FWER correction across principles (Vovk-Wang 2021); "
+                "empirical-Bernstein LCB on aggregate score (Maurer-"
+                "Pontil 2009).  Mines (rejected, chosen) pairs for "
+                "downstream Aligner DPO/KTO training (the RLAIF outer "
+                "loop).  Companion to Schemer (cross-interaction "
+                "deception); Constitutionalist is the per-interaction "
+                "gate.  Merkle fingerprint chain over judges, revisions "
+                "and verdicts."),
 )
 
 
