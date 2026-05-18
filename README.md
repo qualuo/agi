@@ -5973,6 +5973,201 @@ diagnostic since.  Cook (1977)'s
     to record; bit-exact reproducibility of a GPU SFT run is out of
     scope for the in-process primitive.
 
+## Mechanizer — mechanistic interpretability as a runtime primitive
+
+Every other primitive reasons over *behaviour*: which primitive was
+dispatched, what cost it spent, whether it satisfied an SLO.
+`Mechanizer` is the primitive that reasons over *mechanism*: take any
+matrix of internal activations (an LLM hidden state, an embedding
+window, the `Imaginator`'s latent rollouts, the `Debater`'s position
+vectors, an `Aligner`'s policy head), learn an over-complete sparse
+dictionary on it, decompose every activation into a *monosemantic*
+sparse code, and expose the causal-intervention primitives a safety
+reviewer needs — *steering* a sample along a feature direction,
+*patching* one sample's feature value with another's, and reading a
+*faithfulness certificate* with a Donoho-Elad identifiability gate
+and Hoeffding / Bernstein lower-confidence bounds on the population
+R² of the explanation.
+
+```python
+from agi.mechanizer import (
+    Mechanizer, MechanizerConfig, ALGO_TOPK_SAE, mechanizer_synthetic_features,
+)
+
+mech = Mechanizer(MechanizerConfig(
+    algorithm=ALGO_TOPK_SAE,
+    n_features=128,           # over-complete: more atoms than neurons
+    target_l0=8,              # top-k sparsity, exact L0 cap
+    learning_rate=1e-2,
+    max_iter=300,
+    seed=0,
+))
+
+X = mechanizer_synthetic_features(n=400, dim=32, n_true=16, true_l0=4, seed=0)
+
+rep  = mech.fit(X)                  # MechanizerReport with R², μ(D), dead-feat
+cert = mech.certify(X, delta=0.05)  # MechanizerCertificate; Hoeffding R² LCB
+
+Z = mech.encode(X[:8])              # sparse code matrix (top-k masked)
+Y = mech.decode(Z)                  # reconstructed activations
+
+# Auto-interpretation: top-K samples activating each learned feature.
+labels = mech.auto_interpret(X, top_k=5)
+
+# Causal interventions in feature space:
+steered  = mech.steer(X[:1], feature=42, magnitude=2.0)
+patched  = mech.patch(X[:1], donor=X[1:2], feature=42, scale=1.0)
+
+# Feature-feature dependency graph from code-matrix correlations.
+g = mech.circuit(X, threshold=0.20)
+```
+
+### Algorithms shipped
+
+  * **Top-K SAE** (Gao-Goh-Kingma-Nichol 2024; Bricken-Templeton et al.
+    Anthropic 2023 *Towards Monosemanticity*) — linear encoder
+    `Z = ReLU((X − b_d) W^⊤ + b_e)` with hard top-k mask retaining only
+    the k largest entries per row, tied decoder `X̂ = Z W + b_d`,
+    trained by SGD on MSE.  Sparsity enforced **exactly** by the
+    top-k mask; no λ to tune.
+  * **L1 SAE** (Cunningham-Ewart-Riggs-Huben-Sharkey 2023; Olshausen-
+    Field 1996 sparse-coding roots) — same architecture, soft sparsity
+    via the L1 penalty `loss = ||X − X̂||² + λ ||Z||₁`.
+  * **K-SVD dictionary learning** (Aharon-Elad-Bruckstein 2006).
+    Alternating: (1) sparse-coding step via OMP, (2) atom-by-atom
+    update via the rank-1 SVD of the residual on each atom's support
+    (power-iteration approximation, stdlib-only).  Provably converges
+    to a stationary point.
+  * **PCA baseline** — eigen-decomposition of the centred covariance
+    via symmetric Jacobi rotations.  Dense and orthogonal; used as a
+    control to show that sparsity *adds* identifiability over the
+    dense optimum and as a strong initialiser for the SAE.
+
+### Pursuit kernels shipped
+
+Five encoders (plus an `auto` mode that picks the kernel implied by
+the configured algorithm):
+
+  * **OMP** — Orthogonal Matching Pursuit (Pati-Rezaifar-Krishnaprasad
+    1993; Tropp 2004 *Greed is Good*).  Exact recovery whenever
+    `μ(D) < 1/(2k − 1)`.
+  * **MP** — vanilla Matching Pursuit (Mallat-Zhang 1993).
+  * **Top-K** — strict top-k thresholding on the encoder pre-activation.
+  * **FISTA** — accelerated proximal gradient (Beck-Teboulle 2009) for
+    the L1-lasso form.
+  * **Hard / soft threshold** — Donoho (1995) shrinkage; one pass, no
+    support refinement.
+  * **Dense** — identity pass-through for PCA-style dense codes.
+
+### Activation patching, steering, circuit discovery
+
+  * **`patch(target, donor, feature, scale)`** — Wang-Variengien-Conmy
+    2022 *Interpretability In The Wild* / Heimersheim-Nanda 2024.
+    Replaces `target`'s value of `feature` with `donor`'s and decodes
+    back; `scale ∈ [0, 1]` interpolates target ↔ donor.  Accepts a
+    single feature or a list of features.
+  * **`steer(target, feature, magnitude)`** — Templeton et al. 2024
+    Anthropic *Scaling Monosemanticity* feature-steering primitive.
+    Adds `magnitude · d_feature` to the target's activation; the
+    ledger records the L2 perturbation norm as the *blast radius* of
+    the intervention — a downstream `Aligner` / `Verifier` gates on
+    this number.
+  * **`circuit(X, threshold)`** — feature-feature co-activation graph
+    (Conmy et al. 2023 ACDC-style edge-importance in code-space).
+    Returns a `CircuitGraph` with edge count and largest connected
+    component.
+
+### Faithfulness certificate
+
+Every `MechanizerCertificate` carries:
+
+  * **`r2`** — coefficient of determination on the certifying sample.
+  * **`mean_l0`** — average ‖z_i‖₀ per row.
+  * **`mutual_coherence`** — `μ(D) = max_{i≠j} |⟨d_i, d_j⟩|` over
+    ℓ2-normalised atoms; `identifiable_l0 = ⌊(1 + 1/μ)/2⌋` is the
+    largest *k* for which Donoho-Elad 2003 guarantees a unique
+    `k`-sparse decomposition.
+  * **`dead_features`** — atoms whose activation density falls below
+    `dead_feature_threshold`.
+  * **`hoeffding_r2_lcb(δ)`** — one-tailed Hoeffding lower-confidence
+    bound on the population R² from the empirical per-row R²s.
+  * **`bernstein_r2_lcb(δ)`** — empirical-Bernstein refinement
+    (Maurer-Pontil 2009) using in-sample R² variance.
+
+### Replay-verifiable receipts
+
+SHA-256 fingerprint chain over every `started`, `fit`, `encoded`,
+`decoded`, `patched`, `steered`, `circuit_built`, `interpreted`,
+`certified`, `cleared` event.  `mechanizer_ledger_root()` is the
+immutable genesis `agi.mechanizer.v1`.  Replaying the chain
+reproduces every code, every reconstruction, every patch, byte-for-
+byte.  Pluggable HMAC key for tamper-evident multi-tenant
+deployments.  `snapshot()` / `restore()` resume a fit exactly.
+
+### How it composes with the rest of the runtime
+
+  * `Attributor` answers *which training rows* drove a prediction;
+    `Mechanizer` answers *which internal features* did.  Route
+    Attributor's high-influence rows through `Mechanizer.auto_interpret`
+    to get a row × feature heatmap, then use `Attributor.counterfactual`
+    on the patched activations to test causal effect on the loss.
+  * `Aligner` — if steering along feature *j* durably changes the
+    aligner's score, *j* is a *safety-relevant* feature and gets
+    promoted to the `Aligner`'s monitored vocabulary.
+  * `Debater` — decompose each debate position into sparse features so
+    the `Reconciler` can inspect *which features differ* between
+    positions, not just their final scalar scores.
+  * `Conformal` — the sparse code `Z` is a calibrated nonconformity
+    score (density of features fired vs the calibration distribution).
+  * `Topologist` — persistent homology and Mapper on the code matrix
+    detect *topological* features of the representation that
+    complement Mechanizer's linear features.
+  * `Knowledge` — auto-interpreted features promoted to typed nodes
+    with edges from the circuit graph; the coordinator queries
+    explanations symbolically.
+  * `Pretunist` — inspect the *change* in activation space between
+    pre- and post-adaptation, gating an adaptation that destroys too
+    many monosemantic features.
+  * `Verifier` — the certificate's identifiability predicate is a
+    boolean Verifier lifts into an LCF-style proof object.
+  * `Driver` / `Coordinator` / `Strategist` — `Mechanizer` is
+    discoverable via the `Manifest` catalog with `kind=observability`,
+    `tags={numerical, introspection, safety, pac-bound,
+    replay-verifiable}`, `certificate=pac`.
+
+### Investor framing
+
+A frontier-model deployment is not safe because the model is well-
+trained; it's safe because every contested decision can be **opened
+up** and *causally* attributed to specific internal features, and
+those features can be *intervened on* with a *bounded* blast radius
+that a third party can re-verify from a tamper-evident receipt.
+`Mechanizer` is the runtime primitive that turns the alignment-team
+research stack (sparse autoencoders, activation patching, feature
+steering, circuit discovery) into a coordination-engine *callable*
+with a uniform faithfulness certificate, deterministic given seed,
+and pure stdlib.  The same primitive that explains a denied loan
+also explains a refused tool call, and the same dictionary that
+attributes a Debater divergence also gates a Pretunist adapter
+update.
+
+### What it deliberately doesn't claim
+
+  * Not a frontier-scale interpretability stack — the in-process
+    closed-form path tops out around ``n × d × K = 10⁴ × 10² × 10³``
+    on a CPU.  GPU-backed interpretability against billion-parameter
+    transformers is a follow-up primitive.
+  * Not a guarantee that learned features are *semantically*
+    monosemantic — only that they are *algorithmically* sparse and,
+    when ``μ(D) < 1/(2k−1)``, *uniquely identifiable*.
+    Interpretability of features in human terms is a downstream LLM
+    label task; the primitive emits the top-activating-input set and
+    leaves the labelling to the caller.
+  * Not a causal model of the underlying network — the patching and
+    steering primitives test *behavioural* counterfactuals against the
+    learned dictionary, not against the original computation graph.
+    Pair with `Causal` / `Counterfactor` for causal effect identification.
+
 ## HTTP / SSE surface
 
 `python -m agi.server` exposes the Runtime over HTTP for out-of-process
