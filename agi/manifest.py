@@ -2011,6 +2011,82 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "trigger the highest-severity verdict). Pure stdlib; "
                 "thread-safe; fingerprint-chained replay-verifiable "
                 "certificate."),
+    _spec(name="aegis", kind=KIND_SAFETY,
+          summary="Multi-primitive safety certificate fusion gate: "
+                  "ingests verdicts from any subset of the safety stack "
+                  "(Refuser, Sycophant, Confabulator, Schemer, "
+                  "Goodharter, Constitutionalist, Watermarker, "
+                  "Faithfuller, Elicitor) plus arbitrary third-party "
+                  "verdicts via a canonical severity ladder "
+                  "(OK / WATCH / DEGRADE / BLOCK), fuses e-values via "
+                  "Vovk-Wang product-of-e-values and p-values via Holm "
+                  "step-down — both valid under arbitrary dependence — "
+                  "and issues SHIP | HOLD | DEGRADE | BLOCK with a "
+                  "named blocking_primitive on a SHA-256 fingerprint "
+                  "chain. The single deployment gate a coordination "
+                  "engine reads at ship-time.",
+          tags=(TAG_SAFETY, TAG_ANYTIME, TAG_REPLAY, TAG_INTROSPECTION,
+                TAG_CALIBRATION, TAG_ADAPTIVE),
+          inputs=("SafetyCertificate(primitive, verdict, "
+                  "recommendation?, e_value?, p_value?, evidence_n?, "
+                  "fingerprint?)",
+                  "Any safety-primitive certificate dataclass via "
+                  "from_dataclass(cert, primitive_id) — auto-extracts "
+                  "verdict, recommendation, product_evalue/joint_evalue/"
+                  "gap_evalue/e_value/sandbag_score, p_value, "
+                  "n_observations, fingerprint",
+                  "AegisConfig(deployment_id, alpha, "
+                  "require_primitives, severity_overrides, "
+                  "block_on_unknown, product_evalue_factor, "
+                  "holm_escalation_threshold, "
+                  "recommendation_propagation, ...)"),
+          outputs=("PrimitiveDecisionEntry per absorbed certificate",
+                   "AegisDecision(decision, severity, "
+                   "blocking_primitive, aggregated_recommendation, "
+                   "per_primitive, product_evalue, holm_rejected, "
+                   "missing_required, fingerprint)",
+                   "AegisReport bundle",
+                   "SHIP|HOLD|DEGRADE|BLOCK",
+                   "OK|WATCH|DEGRADE|BLOCK"),
+          composes_with=("refuser", "sycophant", "confabulator",
+                         "schemer", "goodharter", "constitutionalist",
+                         "watermarker", "faithfuller", "elicitor",
+                         "auditor", "attest", "drift", "governance",
+                         "oracle", "strategist", "coordinator",
+                         "policy", "capabilities", "preflight",
+                         "portfolio", "market"),
+          events_emitted=("aegis.started",
+                          "aegis.absorbed",
+                          "aegis.certified",
+                          "aegis.reported",
+                          "aegis.reset",
+                          "aegis.alerted"),
+          certificate=CERT_ANYTIME,
+          determinism=DETERMINISM_PURE,
+          dependency=DEP_STDLIB,
+          demo_path="examples/aegis_demo.py",
+          notes="Vovk-Wang 2021 (arXiv:1912.06116) product-of-e-values "
+                "for global tests under arbitrary dependence; Holm 1979 "
+                "step-down FWER control with no independence "
+                "assumption; Bonferroni 1936 union-bound calibration. "
+                "The first runtime primitive that asks the operational "
+                "question every coordination engine has to answer at "
+                "ship time: *given all of these certificates, may I "
+                "ship this model right now?* — collapsing nine distinct "
+                "safety primitives' heterogeneous verdict spaces onto "
+                "one canonical severity ladder and one decision, with "
+                "two fusion options (max-severity AND, e-value/p-value "
+                "fused escalation) that are both valid under arbitrary "
+                "dependence — the conservative default for any real "
+                "deployment where the safety primitives share data, "
+                "share a model, or share a user population. Composes "
+                "with the entire safety stack as a downstream consumer, "
+                "with governance / attest / oracle as an upstream "
+                "ledger (every absorption and decision fingerprint-"
+                "chained), and with policy / capabilities / preflight "
+                "as a routing gate (downgrade or quarantine before "
+                "dispatch). Pure stdlib; thread-safe; replay-"
+                "verifiable."),
     _spec(name="elicitor", kind=KIND_SAFETY,
           summary="Capability elicitation with PAC certificates: per-"
                   "method scores stream into Welford-stable running "
