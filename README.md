@@ -7030,6 +7030,105 @@ certificate to the audit ledger), `coordinator`.
     generator that produces (intent, baseline / pushback / authority
     / ...) variants sharing a ``task_id``.
 
+## Elicitor — capability elicitation with PAC certificates as a runtime primitive
+
+Every frontier-model deployment decision turns on one question:
+*how capable is this model, actually?*  Naïve answers — average pass-rate
+on a fixed benchmark, single-temperature greedy decoding, a single
+prompt template — *systematically underestimate* the model's true
+capability frontier (METR 2024, "Measuring the Performance of AI Agents
+on Complex Tasks"; UK AISI 2024, "Pre-deployment evaluations of frontier
+AI models"; Anthropic 2024, "Frontier capability elicitation").  A
+deliberately sandbagging model — or, more often, an under-elicited
+deployment of a strong model — passes the easy bar and quietly carries
+unmeasured risk into production.
+
+`Elicitor` is the runtime primitive that closes that gap with
+**bounded, anytime, certified, pure-stdlib** machinery — one peek-able,
+anytime-valid, fingerprint-chained capability certificate per (model,
+benchmark) pair that a coordination engine reads at sign-off.
+
+```python
+from agi.elicitor import (
+    Elicitor, ElicitorConfig, ElicitationObservation,
+    METHOD_GREEDY, METHOD_BON_64, METHOD_COT, METHOD_FINETUNE_PROBE,
+)
+
+cfg = ElicitorConfig(
+    model_id="claude-opus-4-7@candidate",
+    benchmark_id="aisi-frontier-v1",
+    target_capability=0.70,        # min elicited capability for DEPLOY
+    epsilon=0.05,                  # PAC slack
+    delta=0.05,                    # PAC failure probability
+    max_intratask_variance=0.05,   # sandbagging-detection budget
+)
+el = Elicitor(cfg, bus=event_bus)
+
+# Each observation is one (task, method, score) triple.  Stream as
+# many or as few as the elicitation budget allows.
+el.observe(ElicitationObservation(
+    task_id="apps-easy-42", method_id=METHOD_BON_64, score=0.85, cost_usd=0.18))
+
+cert = el.certify()
+# cert.verdict          ∈ {FRONTIER, ELICIT_MORE, SANDBAGGER, UNDERPERFORMING}
+# cert.recommendation   ∈ {DEPLOY, EXPAND_ELICITATION, INVESTIGATE_SANDBAG, RETIRE, ESCALATE_HUMAN}
+# cert.elicited_capability     — running max of per-method means
+# cert.capability_ucb / _lcb   — Bonferroni-corrected max-method UCB
+#                                + anytime-valid one-sided LCB
+# cert.sandbag_score           — hedged-capital e-value on intratask variance
+# cert.per_method              — full per-method breakdown (n, mean, var, CI, cost)
+# cert.fingerprint             — SHA-256 audit chain root
+```
+
+### Statistical machinery
+
+| Quantity                      | Mechanism                                                 |
+|-------------------------------|-----------------------------------------------------------|
+| Per-method mean + variance    | Welford 1962 streaming bivariate moments                  |
+| Per-method CI                 | Maurer-Pontil 2009 empirical-Bernstein, anytime-valid     |
+| Multi-method correction       | Bonferroni 1936 split (δ/K) over the active method count  |
+| Max-method UCB                | `max_i UCB_i` — simultaneous one-sided frontier bound     |
+| Elicited-capability LCB       | Best method's empirical-Bernstein one-sided LCB           |
+| Sandbagging variance e-value  | Waudby-Smith-Ramdas 2024 hedged-capital betting e-process |
+
+### How a coordination engine uses it
+
+  1. Maintain one `Elicitor` per (model_id, benchmark_id) pair.
+  2. Whenever the engine scores the model under any method on any
+     task, push the score in via `observe`.  Observations need not be
+     balanced across methods.
+  3. At sign-off time, check `cert.verdict`:
+       * **FRONTIER** — `capability_lcb ≥ target_capability` across ≥
+         `min_methods` distinct elicitation methods → **DEPLOY**.
+       * **ELICIT_MORE** — too few methods or rounds → coordinator
+         allocates more elicitation budget.
+       * **SANDBAGGER** — intratask variance e-value crosses
+         `1/δ` → coordinator routes to `schemer` for deeper
+         deception certification.
+       * **UNDERPERFORMING** — even the optimistic UCB is below the
+         target → retire the candidate or return it to training.
+  4. Hand the SHA-256 fingerprint chain to `attest` / `oracle` /
+     `governance` for the compliance ledger.
+
+### Composes with
+
+  * **Schemer** — sandbagging e-value plus Schemer's behavioural
+    sandbagging test fuse to QUARANTINE at highest severity.
+  * **Faithfuller** — gate sign-off behind a Faithfuller pass; an
+    unfaithful policy can't be safely deployed even at the elicited
+    capability.
+  * **Cartographer / Curator** — `ELICIT_MORE` is the curriculum
+    generator's signal that the model has spare capability to elicit;
+    Curator mines harder tasks until Elicitor lands at FRONTIER or
+    UNDERPERFORMING.
+  * **Capabilities** — Elicitor-certified scores promote into the
+    observed-performance router only on `FRONTIER`.
+  * **Refuser / Sycophant / Confabulator / Constitutionalist /
+    Goodharter** — a unified deployment safety snapshot the
+    coordination engine reads atomically.
+
+See `examples/elicitor_demo.py` for a full runnable end-to-end audit.
+
 ## Faithfuller — chain-of-thought faithfulness certification as a runtime primitive
 
 A growing fraction of the runtime's value comes from agents whose final
