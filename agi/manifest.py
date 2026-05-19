@@ -2011,6 +2011,84 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "trigger the highest-severity verdict). Pure stdlib; "
                 "thread-safe; fingerprint-chained replay-verifiable "
                 "certificate."),
+    _spec(name="elicitor", kind=KIND_SAFETY,
+          summary="Capability elicitation with PAC certificates: per-"
+                  "method scores stream into Welford-stable running "
+                  "moments, an empirical-Bernstein anytime-valid CI "
+                  "per method (Maurer-Pontil 2009; Howard et al. 2021), "
+                  "a Bonferroni-corrected max-method UCB on the "
+                  "capability *frontier*, an anytime-valid one-sided "
+                  "lower bound on the elicited capability, and a "
+                  "hedged-capital e-process on per-task variance for "
+                  "sandbagging detection (Waudby-Smith-Ramdas 2024). "
+                  "Issues FRONTIER | ELICIT_MORE | SANDBAGGER | "
+                  "UNDERPERFORMING paired with DEPLOY | "
+                  "EXPAND_ELICITATION | INVESTIGATE_SANDBAG | RETIRE | "
+                  "ESCALATE_HUMAN on a SHA-256 fingerprint chain.",
+          tags=(TAG_SAFETY, TAG_PAC, TAG_ANYTIME, TAG_REPLAY,
+                TAG_INTROSPECTION, TAG_CALIBRATION, TAG_STREAMING,
+                TAG_LLM, TAG_ADAPTIVE),
+          inputs=("ElicitationObservation(task_id, method_id, score, "
+                  "cost_usd?)",
+                  "ElicitorConfig(model_id, benchmark_id, "
+                  "target_capability, epsilon, delta, "
+                  "max_intratask_variance, ...)"),
+          outputs=("MethodReport per method (n, mean, var, CI, cost)",
+                   "ElicitorCertificate(elicited_capability, "
+                   "elicited_method_id, capability_ucb, capability_lcb, "
+                   "sandbag_score, verdict, recommendation, per_method, "
+                   "fingerprint)",
+                   "ElicitorReport bundle",
+                   "FRONTIER|ELICIT_MORE|SANDBAGGER|UNDERPERFORMING",
+                   "DEPLOY|EXPAND_ELICITATION|INVESTIGATE_SANDBAG|"
+                   "RETIRE|ESCALATE_HUMAN"),
+          composes_with=("schemer", "faithfuller", "constitutionalist",
+                         "refuser", "sycophant", "confabulator",
+                         "goodharter", "mechanizer", "attributor",
+                         "steerer", "auditor", "attest", "drift",
+                         "governance", "strategist", "coordinator",
+                         "policy", "capabilities", "cartographer",
+                         "curator"),
+          events_emitted=("elicitor.started",
+                          "elicitor.observed",
+                          "elicitor.certified",
+                          "elicitor.reported",
+                          "elicitor.reset",
+                          "elicitor.alerted",
+                          "elicitor.budget_updated"),
+          certificate=CERT_PAC,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/elicitor_demo.py",
+          notes="METR 2024 'Measuring the Performance of AI Agents on "
+                "Complex Tasks'; UK AISI 2024 'Pre-deployment "
+                "evaluations of frontier AI models'; Anthropic 2024 "
+                "'Frontier capability elicitation' — the canonical "
+                "argument that naïve eval pass-rates *systematically "
+                "under-estimate* a model's true capability frontier, "
+                "and that deployment sign-off requires a *certified* "
+                "elicitation procedure. Welford 1962 stable streaming "
+                "variance; Maurer-Pontil 2009 empirical-Bernstein CI; "
+                "Howard-Ramdas-McAuliffe-Sekhon 2021 time-uniform "
+                "nonparametric confidence sequences; Waudby-Smith-"
+                "Ramdas 2024 hedged-capital betting e-process on the "
+                "per-task variance signature; Bonferroni 1936 / Holm "
+                "1979 multiple-comparison correction on the max-method "
+                "UCB. Closes the deployment-sign-off gap a coordination "
+                "engine has when shipping a new model checkpoint: every "
+                "(model, benchmark) pair carries a peek-able, anytime-"
+                "valid, fingerprint-chained capability certificate. "
+                "Composes with Schemer (sandbagging e-value plus the "
+                "Schemer behavioural test fuse to QUARANTINE), "
+                "Faithfuller (gate sign-off behind Faithfuller pass — "
+                "an unfaithful policy can't be safely deployed even at "
+                "the elicited capability), Cartographer / Curator "
+                "(elicitor verdict drives the curriculum generator: "
+                "ELICIT_MORE triggers Curator to mine harder tasks), "
+                "and Capabilities (Elicitor-certified scores promote "
+                "into the observed-performance router only on "
+                "FRONTIER). Pure stdlib; thread-safe; replay-"
+                "verifiable."),
     _spec(name="faithfuller", kind=KIND_SAFETY,
           summary="Chain-of-thought faithfulness certification: streaming "
                   "(intact, perturbed) audit families feed six paired "
