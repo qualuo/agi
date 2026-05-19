@@ -7030,6 +7030,111 @@ certificate to the audit ledger), `coordinator`.
     generator that produces (intent, baseline / pushback / authority
     / ...) variants sharing a ``task_id``.
 
+## Aegis — multi-primitive safety certificate fusion as a runtime primitive
+
+The runtime ships a *stack* of safety certifiers: `Refuser`, `Sycophant`,
+`Confabulator`, `Schemer`, `Goodharter`, `Constitutionalist`,
+`Watermarker`, `Faithfuller`, and `Elicitor`.  Each one answers a precise
+question with a peek-able, anytime-valid certificate.  *None of them on
+their own answers the operational question every coordination engine
+has to answer at ship time:*
+
+> Given all of these certificates, may I ship this model right now?
+
+`Aegis` is that surface.  It ingests `SafetyCertificate` envelopes from
+any subset of the safety primitives, normalises their heterogeneous
+verdicts onto a single **severity ladder**, fuses e-values via
+Vovk-Wang product-of-e-values and p-values via Holm step-down (both
+valid under *arbitrary dependence* among the primitives), and issues
+a structured decision a coordination engine dispatches on:
+
+```python
+from agi.aegis import Aegis, AegisConfig, from_dataclass
+
+aegis = Aegis(AegisConfig(
+    deployment_id="claude-opus-4-7@prod",
+    require_primitives=("refuser", "faithfuller", "elicitor"),
+    alpha=0.05,
+))
+
+# Hand any safety primitive's certify() output through the adapter:
+aegis.absorb(from_dataclass(refuser_cert,     "refuser"))
+aegis.absorb(from_dataclass(faithfuller_cert, "faithfuller"))
+aegis.absorb(from_dataclass(elicitor_cert,    "elicitor"))
+aegis.absorb(from_dataclass(goodharter_cert,  "goodharter"))
+aegis.absorb(from_dataclass(sycophant_cert,   "sycophant"))
+# ... any subset of the safety stack ...
+
+decision = aegis.certify()
+# decision.decision              ∈ {SHIP, HOLD, DEGRADE, BLOCK}
+# decision.severity              ∈ {OK, WATCH, DEGRADE, BLOCK}
+# decision.blocking_primitive    — which primitive (if any) forced the action
+# decision.aggregated_recommendation
+# decision.per_primitive         — normalised per-primitive breakdown
+# decision.product_evalue        — ∏E (Vovk-Wang)
+# decision.holm_rejected         — Holm-corrected rejections
+# decision.fingerprint           — SHA-256 audit root
+```
+
+### Severity ladder
+
+| Severity     | Inputs (verdicts from the safety stack)                                                  |
+|--------------|------------------------------------------------------------------------------------------|
+| `OK`         | `TRUST`, `clear`, `pass`, `FRONTIER`, `CONFAB_PASS`, `WM_PASS`                           |
+| `WATCH`      | `INVESTIGATE`, `warn`, `suspicious`, `WARN`, `ELICIT_MORE`, `CONFAB_WARN`, `WM_WARN`     |
+| `DEGRADE`    | `DEGRADE`, `RETRAIN`, `RETUNE`, `regenerate`, `restrict`, `fail`, `CONFAB_FAIL`, `WM_FAIL`, `inconclusive` |
+| `BLOCK`      | `REJECT`, `QUARANTINE`, `scheming`, `SANDBAGGER`, `UNDERPERFORMING`, `block`, `escalate_human`, `ESCALATE_HUMAN` |
+
+Coordinators may override the mapping via `AegisConfig.severity_overrides`.
+Unknown verdicts default to `WATCH` (or `BLOCK` if
+`block_on_unknown=True`).
+
+### Decision rule
+
+  1. **Worst-case AND.**  One `BLOCK` severity from any primitive
+     forces `BLOCK`.  This is the conservative default.
+  2. **Fusion-driven escalation.**  When all per-primitive severities
+     are at most `WATCH`, but
+       * the Vovk-Wang product e-value `∏E_i` exceeds `factor / alpha`, or
+       * Holm step-down rejects strictly more than
+         `holm_escalation_threshold` primitives,
+     `Aegis` escalates one ladder step — the family-level evidence
+     overrides any one primitive's optimism.
+  3. **Required primitives.**  If `require_primitives` is non-empty
+     and any listed primitive hasn't checked in, `Aegis` returns
+     `HOLD/WATCH` until the deployment surface is fully covered.
+
+Both Holm step-down and Vovk-Wang product-of-e-values are valid under
+*arbitrary dependence* among the safety primitives (Holm 1979; Vovk &
+Wang 2021).  This is the conservative default for any real deployment
+where the primitives share data, share a model, or share a user
+population.
+
+### What `Aegis` deliberately doesn't claim
+
+  * It does not *estimate* the per-primitive verdict — that is the
+    underlying primitive's job.  `Aegis` consumes verdicts.
+  * It does not assume independence among the safety primitives.
+  * It does not learn fusion weights.  A coordination engine may use
+    `policy` / `capabilities` to *learn* weights; Aegis is purely
+    declarative.
+
+### Composes with
+
+  * The entire safety stack as a **downstream consumer** —
+    `Refuser`, `Sycophant`, `Confabulator`, `Schemer`, `Goodharter`,
+    `Constitutionalist`, `Watermarker`, `Faithfuller`, `Elicitor` all
+    speak `from_dataclass(cert, primitive_id)`.
+  * `governance` / `attest` / `oracle` as an **upstream ledger**:
+    every absorption and decision is fingerprint-chained.
+  * `policy` / `capabilities` / `preflight` as a **routing gate**:
+    coordinators downgrade or quarantine before dispatch on
+    `decision != SHIP`.
+
+See `examples/aegis_demo.py` for an end-to-end run with
+`Faithfuller + Elicitor + Goodharter` feeding three candidate
+policies through one Aegis gate.
+
 ## Elicitor — capability elicitation with PAC certificates as a runtime primitive
 
 Every frontier-model deployment decision turns on one question:
