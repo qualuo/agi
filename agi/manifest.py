@@ -1938,6 +1938,79 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "tightens that user's CI and only that user's — provably "
                 "private, replay-verifiable, and never coupled to a "
                 "weight update on the underlying model."),
+    _spec(name="goodharter", kind=KIND_SAFETY,
+          summary="Proxy-reward / specification-gaming divergence certification: streaming (proxy, true) pairs feed Welford-stable Pearson with Fisher-Z CI, Spearman / Kendall rank tests, empirical-Bernstein gap CI, two one-sided anytime-valid e-processes (Beta-Binomial betting on the indicator and hedged-capital on the continuous gap), Holm step-down + Vovk-Wang product-of-e-values multi-test fusion, and a Kolmogorov-Smirnov distribution-shift detector — issuing TRUST | INVESTIGATE | RETRAIN | QUARANTINE on a SHA-256 fingerprint chain.",
+          tags=(TAG_SAFETY, TAG_ANYTIME, TAG_REPLAY, TAG_BAYESIAN,
+                TAG_INTROSPECTION, TAG_CALIBRATION, TAG_STREAMING,
+                TAG_ADAPTIVE),
+          inputs=("RewardObservation(decision_id, proxy_reward, "
+                  "true_reward, context_features?, is_control?)",
+                  "GoodharterConfig(proxy_id, divergence_budget, "
+                  "min_correlation, ...)"),
+          outputs=("TestResult per family member",
+                   "GoodharterCertificate(verdict, recommendation, "
+                   "pearson_r + Fisher-Z CI, spearman_r, kendall_tau, "
+                   "gap_mean + empirical-Bernstein CI, gap_evalue, "
+                   "gap_hedged_evalue, hedged_lcs, monotonicity_"
+                   "violation_rate, product_evalue, fingerprint)",
+                   "GoodharterReport bundle",
+                   "TRUST|INVESTIGATE|RETRAIN|QUARANTINE",
+                   "DEPLOY|MONITOR|RETUNE|REPLACE|ESCALATE_HUMAN"),
+          composes_with=("aligner", "intender", "robustifier",
+                         "constitutionalist", "refuser", "sycophant",
+                         "confabulator", "schemer", "drift",
+                         "attributor", "auditor", "attest",
+                         "governance", "coordinator", "strategist",
+                         "portfolio", "pool", "personalizer"),
+          events_emitted=("goodharter.started",
+                          "goodharter.observed",
+                          "goodharter.certified",
+                          "goodharter.reported",
+                          "goodharter.reset",
+                          "goodharter.alerted",
+                          "goodharter.budget_updated",
+                          "goodharter.drift_flagged"),
+          certificate=CERT_ANYTIME,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/goodharter_demo.py",
+          notes="Goodhart 1975; Strathern 1997; Manheim-Garrabrant "
+                "2018 (arXiv:1803.04585) 'Categorizing Variants of "
+                "Goodhart's Law'; Krakovna et al. 2020 (DeepMind) "
+                "specification-gaming taxonomy; Christiano 2017 worst-"
+                "case-guarantees framing. Welford 1962 stable bivariate "
+                "moments; Fisher 1915 r-to-z CI on the Pearson "
+                "correlation; Kendall 1938 tau-b on the windowed "
+                "rank-flip count (the textbook reward-hacking "
+                "signature); Kolmogorov 1933 / Smirnov 1948 two-sample "
+                "KS for input-distribution shift; Hoeffding 1963 + "
+                "Maurer-Pontil 2009 empirical Bernstein CI on the gap "
+                "mean; Howard-Ramdas-McAuliffe-Sekhon 2021 universal-"
+                "portfolio e-process discretised over a positive-bet "
+                "grid for the one-sided Bernoulli indicator test; "
+                "Waudby-Smith-Ramdas 2024 hedged-capital betting "
+                "e-process on the continuous gap with a grid-mixture "
+                "LCS on E[gap]; Ville 1939 anytime martingale "
+                "inequality; Ramdas-Grünwald-Vovk-Shafer 2023 anytime-"
+                "valid statistics; Vovk-Wang 2021 product-of-e-values "
+                "for multi-test fusion under arbitrary dependence; "
+                "Holm 1979 step-down FWER. Closes the central "
+                "specification-gaming failure mode of any AGI runtime "
+                "optimising a learned proxy: every proxy-reward "
+                "trajectory becomes a peek-able, anytime-valid, "
+                "fingerprint-chained certificate a coordination engine "
+                "dispatches on. Composes with Aligner (gates DPO/RLHF "
+                "promotion when the proxy diverges), Intender (the "
+                "Goodharter alert is an IRL signal that the reward "
+                "shape is wrong), Robustifier (Goodharter LCS "
+                "parameterises the DRO ambiguity ball), "
+                "Constitutionalist / Refuser / Sycophant / "
+                "Confabulator (each safety primitive's certified "
+                "score is a true_reward source), and Schemer "
+                "(Goodhart drift × deception × sandbagging jointly "
+                "trigger the highest-severity verdict). Pure stdlib; "
+                "thread-safe; fingerprint-chained replay-verifiable "
+                "certificate."),
 )
 
 
