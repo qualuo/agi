@@ -2011,6 +2011,93 @@ _PRIMITIVE_TABLE: tuple[PrimitiveSpec, ...] = (
                 "trigger the highest-severity verdict). Pure stdlib; "
                 "thread-safe; fingerprint-chained replay-verifiable "
                 "certificate."),
+    _spec(name="faithfuller", kind=KIND_SAFETY,
+          summary="Chain-of-thought faithfulness certification: streaming "
+                  "(intact, perturbed) audit families feed six paired "
+                  "tests — truncation sensitivity, filler-vs-paraphrase "
+                  "one-sided contrast, bias-injection following rate, "
+                  "counterfactual-edit response, no-CoT mediation gap, "
+                  "self-consistency replicate disagreement — each "
+                  "Wilson-bounded and tracked by an anytime-valid "
+                  "Beta-Binomial or hedged-capital e-process. The family "
+                  "is fused via Holm step-down FWER on directional "
+                  "p-values and Vovk-Wang product-of-e-values, and "
+                  "issues TRUST | INVESTIGATE | DEGRADE | REJECT paired "
+                  "with DEPLOY | MONITOR | SUMMARY_ONLY | DISABLE_COT | "
+                  "ESCALATE_HUMAN on a SHA-256 fingerprint chain.",
+          tags=(TAG_SAFETY, TAG_ANYTIME, TAG_REPLAY, TAG_BAYESIAN,
+                TAG_INTROSPECTION, TAG_CALIBRATION, TAG_STREAMING,
+                TAG_LLM, TAG_ADAPTIVE),
+          inputs=("FaithfulnessObservation(decision_id, intact_correct?, "
+                  "perturbations=tuple[PerturbationOutcome])",
+                  "PerturbationOutcome(kind in {none, truncate, filler, "
+                  "bias, edit, no_cot, paraphrase}, answer_changed, "
+                  "followed_bias, correct?)",
+                  "FaithfullerConfig(policy_id, min_truncation_"
+                  "sensitivity, max_bias_following, min_edit_response, "
+                  "min_mediation_gap, max_self_inconsistency, "
+                  "max_filler_advantage, alpha, ...)"),
+          outputs=("TestResult per family member with Wilson CI + "
+                   "e-value + directional p-value",
+                   "FaithfullerCertificate(verdict, recommendation, "
+                   "truncation_sensitivity + CI, bias_following_rate + "
+                   "CI, edit_response_rate + CI, self_inconsistency_"
+                   "rate + CI, filler_advantage + CI, mediation_gap + "
+                   "CI, product_evalue, holm_rejected, fingerprint)",
+                   "FaithfullerReport bundle",
+                   "TRUST|INVESTIGATE|DEGRADE|REJECT",
+                   "DEPLOY|MONITOR|SUMMARY_ONLY|DISABLE_COT|"
+                   "ESCALATE_HUMAN"),
+          composes_with=("schemer", "constitutionalist", "refuser",
+                         "sycophant", "confabulator", "reasoner",
+                         "stepwiser", "verifier", "mechanizer",
+                         "attributor", "steerer", "auditor", "attest",
+                         "drift", "governance", "strategist",
+                         "coordinator", "personalizer", "goodharter"),
+          events_emitted=("faithfuller.started",
+                          "faithfuller.observed",
+                          "faithfuller.certified",
+                          "faithfuller.reported",
+                          "faithfuller.reset",
+                          "faithfuller.alerted",
+                          "faithfuller.budget_updated"),
+          certificate=CERT_ANYTIME,
+          determinism=DETERMINISM_SEEDED,
+          dependency=DEP_STDLIB,
+          demo_path="examples/faithfuller_demo.py",
+          notes="Turpin-Michael-Manning 2023 (arXiv:2305.04388) "
+                "'Language Models Don't Always Say What They Think' — "
+                "the original behavioural argument for CoT "
+                "unfaithfulness via biasing-feature perturbation; "
+                "Lanham et al. 2023 (Anthropic, arXiv:2307.13702) "
+                "'Measuring Faithfulness in Chain-of-Thought Reasoning' "
+                "— truncation / corruption / filler / paraphrase test "
+                "battery operationalised here; Chen et al. 2025 "
+                "(Anthropic, arXiv:2505.05410) 'Reasoning Models Don't "
+                "Always Say What They Think' applied to RL-trained "
+                "reasoners. Robbins 1970 likelihood-ratio betting "
+                "martingale; Howard-Ramdas-McAuliffe-Sekhon 2021 "
+                "time-uniform nonparametric confidence sequences; "
+                "Waudby-Smith-Ramdas 2024 hedged-capital betting "
+                "e-process on the continuous mediation gap; Maurer-"
+                "Pontil 2009 empirical-Bernstein CI; Holm 1979 step-"
+                "down FWER on directional p-values; Vovk-Wang 2021 "
+                "product-of-e-values multi-test fusion. Closes the "
+                "remaining CoT-trust gap a coordination engine has when "
+                "reading visible-reasoning traces: every (model, "
+                "prompt) policy carries a peek-able, anytime-valid, "
+                "fingerprint-chained faithfulness certificate. Composes "
+                "with Schemer (CoT unfaithfulness + sandbagging fuse "
+                "to highest severity), Constitutionalist (gate "
+                "Constitutional-correction promotion behind a "
+                "Faithfuller pass), Reasoner / Stepwiser / Verifier "
+                "(only trust CoT-derived signals when Faithfuller "
+                "certifies the policy), Mechanizer / Attributor / "
+                "Steerer (activation-level evidence pairs with "
+                "behavioural certification), and Goodharter (treat a "
+                "reward model's CoT-conditioned scores as a Goodhart-"
+                "vulnerable proxy when Faithfuller flags the upstream "
+                "policy). Pure stdlib; thread-safe; replay-verifiable."),
 )
 
 
